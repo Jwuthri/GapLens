@@ -1,0 +1,48 @@
+{
+  "name": "review-gap-analyzer-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:ci": "jest --coverage --watchAll=false --passWithNoTests",
+    "test:components": "jest --testPathPattern=components",
+    "test:hooks": "jest --testPathPattern=hooks",
+    "test:services": "jest --testPathPattern=services",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug"
+  },
+  "dependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.0.1",
+    "chart.js": "^4.4.0",
+    "chartjs-adapter-date-fns": "^3.0.0",
+    "clsx": "^2.0.0",
+    "eslint": "^8",
+    "eslint-config-next": "14.0.3",
+    "lucide-react": "^0.294.0",
+    "next": "14.0.3",
+    "postcss": "^8",
+    "react": "^18",
+    "react-chartjs-2": "^5.2.0",
+    "react-dom": "^18",
+    "tailwindcss": "^3.3.0",
+    "typescript": "^5"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/jest": "^30.0.0",
+    "jest": "^30.0.5",
+    "jest-environment-jsdom": "^30.0.5"
+  }
+}

@@ -1,0 +1,23 @@
+# Test dependencies
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+pytest-xdist==3.5.0
+httpx==0.25.2
+
+# Additional testing utilities
+factory-boy==3.3.0
+faker==20.1.0
+freezegun==1.2.2
+responses==0.24.1
+
+# Code quality
+black==23.11.0
+isort==5.12.0
+flake8==6.1.0
+mypy==1.7.1
+
+# Performance testing
+pytest-benchmark==4.0.0
+memory-profiler==0.61.0

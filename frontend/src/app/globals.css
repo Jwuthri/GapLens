@@ -1,0 +1,197 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+body {
+  background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
+  color: white;
+  min-height: 100vh;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.btn-primary {
+  background: linear-gradient(to right, #7c3aed, #2563eb);
+  color: white;
+  padding: 0.5rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  transition: all 0.3s ease;
+  transform: scale(1);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(to right, #6d28d9, #1d4ed8);
+  transform: scale(1.05);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+}
+
+.btn-secondary {
+  background: #374151;
+  color: #e5e7eb;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  border: 1px solid #4b5563;
+}
+
+.btn-secondary:hover {
+  background: #4b5563;
+  border-color: #6b7280;
+}
+
+.card {
+  background: rgba(31, 41, 55, 0.5);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid rgba(75, 85, 99, 0.5);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.card-dark {
+  background: rgba(17, 24, 39, 0.8);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  border: 1px solid rgba(75, 85, 99, 0.3);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.gradient-text {
+  background: linear-gradient(to right, #a78bfa, #60a5fa);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.glow-purple {
+  box-shadow: 0 0 20px rgba(147, 51, 234, 0.3);
+}
+
+.terminal-window {
+  background: #111827;
+  border-radius: 0.5rem;
+  border: 1px solid #374151;
+  overflow: hidden;
+}
+
+.terminal-header {
+  background: #1f2937;
+  padding: 0.5rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.terminal-dot {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes glow {
+  from {
+    box-shadow: 0 0 20px rgba(147, 51, 234, 0.3);
+  }
+  to {
+    box-shadow: 0 0 30px rgba(147, 51, 234, 0.6);
+  }
+}
+
+.animate-glow {
+  animation: glow 2s ease-in-out infinite alternate;
+}
+
+@layer components {
+  .container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+  
+  .btn-primary {
+    @apply bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-blue-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-lg;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-800 text-gray-200 px-6 py-3 rounded-lg font-semibold hover:bg-gray-700 transition-all duration-300 border border-gray-600 hover:border-gray-500;
+  }
+  
+  .card {
+    @apply bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 shadow-xl;
+  }
+  
+  .card-dark {
+    @apply bg-gray-900/80 backdrop-blur-sm rounded-xl border border-gray-700/30 shadow-2xl;
+  }
+  
+  .input-field {
+    @apply w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all duration-300;
+  }
+
+  .gradient-text {
+    @apply bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent;
+  }
+
+  .glow-purple {
+    box-shadow: 0 0 20px rgba(147, 51, 234, 0.3);
+  }
+
+  .terminal-window {
+    @apply bg-gray-900 rounded-lg border border-gray-700 overflow-hidden;
+  }
+
+  .terminal-header {
+    @apply bg-gray-800 px-4 py-2 flex items-center space-x-2;
+  }
+
+  .terminal-dot {
+    @apply w-3 h-3 rounded-full;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+
+  @keyframes glow {
+    from {
+      box-shadow: 0 0 20px rgba(147, 51, 234, 0.3);
+    }
+    to {
+      box-shadow: 0 0 30px rgba(147, 51, 234, 0.6);
+    }
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+}

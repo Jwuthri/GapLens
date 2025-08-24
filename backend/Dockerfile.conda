@@ -1,0 +1,53 @@
+FROM continuumio/miniconda3:latest
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create conda environment with Python 3.11
+RUN conda create -n app python=3.11 -y
+SHELL ["conda", "run", "-n", "app", "/bin/bash", "-c"]
+
+# Install packages via conda-forge (better pre-built packages)
+RUN conda install -c conda-forge \
+    fastapi \
+    uvicorn \
+    sqlalchemy \
+    alembic \
+    psycopg2 \
+    redis-py \
+    celery \
+    pydantic \
+    python-multipart \
+    python-jose \
+    passlib \
+    pytest \
+    pytest-asyncio \
+    httpx \
+    aiohttp \
+    beautifulsoup4 \
+    lxml \
+    nltk \
+    scikit-learn \
+    numpy \
+    pandas \
+    textblob \
+    sentence-transformers \
+    hdbscan \
+    -y
+
+# Install remaining packages via pip
+RUN pip install --no-cache-dir \
+    regex==2023.10.3 \
+    scrapling==0.2.1
+
+COPY . .
+
+EXPOSE 8000
+
+CMD ["conda", "run", "-n", "app", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
