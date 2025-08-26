@@ -1,6 +1,7 @@
-"""Advanced clustering and insights generation engine using sentence transformers."""
+"""Advanced clustering and insights generation engine using sentence transformers with performance optimizations."""
 
 import logging
+import hashlib
 from typing import List, Dict, Tuple, Optional
 from datetime import datetime, timedelta
 import numpy as np
@@ -20,22 +21,25 @@ from sklearn.decomposition import PCA
 import hdbscan
 
 from ..models.schemas import Review, ComplaintClusterBase
+from .cache_service import cache_service
 
 
 class ClusteringEngine:
-    """Advanced clustering engine using sentence transformers and HDBSCAN."""
+    """Advanced clustering engine using sentence transformers and HDBSCAN with performance optimizations."""
     
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", enable_caching: bool = True):
         """
         Initialize the clustering engine.
         
         Args:
             model_name: Name of the sentence transformer model to use
+            enable_caching: Whether to enable caching for embeddings and clustering results
         """
         self.logger = logging.getLogger(__name__)
         self.model_name = model_name
         self.sentence_model = None
         self.tfidf_vectorizer = None
+        self.enable_caching = enable_caching
         
         # Initialize sentence transformer if available
         if SENTENCE_TRANSFORMERS_AVAILABLE:
@@ -59,7 +63,7 @@ class ClusteringEngine:
     
     def generate_embeddings(self, texts: List[str]) -> np.ndarray:
         """
-        Generate embeddings for a list of texts.
+        Generate embeddings for a list of texts with caching support.
         
         Args:
             texts: List of text strings to embed
@@ -75,12 +79,32 @@ class ClusteringEngine:
         if not valid_texts:
             return np.array([])
         
+        # Check cache for embeddings
+        texts_hash = self._generate_texts_hash(valid_texts)
+        if self.enable_caching:
+            cached_embeddings = cache_service.get_nlp_embeddings(texts_hash)
+            if cached_embeddings is not None:
+                self.logger.debug(f"Using cached embeddings for {len(valid_texts)} texts")
+                return np.array(cached_embeddings)
+        
         try:
             if self.sentence_model is not None:
                 # Use sentence transformers for better semantic embeddings
-                embeddings = self.sentence_model.encode(valid_texts, show_progress_bar=False)
+                # Process in batches for memory efficiency
+                batch_size = 32
+                all_embeddings = []
+                
+                for i in range(0, len(valid_texts), batch_size):
+                    batch_texts = valid_texts[i:i + batch_size]
+                    batch_embeddings = self.sentence_model.encode(
+                        batch_texts, 
+                        show_progress_bar=False,
+                        batch_size=batch_size
+                    )
+                    all_embeddings.append(batch_embeddings)
+                
+                embeddings = np.vstack(all_embeddings)
                 self.logger.debug(f"Generated {len(embeddings)} sentence transformer embeddings")
-                return embeddings
             else:
                 # Fallback to TF-IDF with dynamic parameters for small datasets
                 vectorizer = TfidfVectorizer(
@@ -92,11 +116,23 @@ class ClusteringEngine:
                 )
                 embeddings = vectorizer.fit_transform(valid_texts).toarray()
                 self.logger.debug(f"Generated {len(embeddings)} TF-IDF embeddings")
-                return embeddings
+            
+            # Cache the embeddings
+            if self.enable_caching:
+                cache_service.cache_nlp_embeddings(texts_hash, embeddings.tolist(), ttl=604800)  # 7 days
+            
+            return embeddings
+            
         except Exception as e:
             self.logger.error(f"Error generating embeddings: {e}")
             # Return empty array on error
             return np.array([])
+    
+    def _generate_texts_hash(self, texts: List[str]) -> str:
+        """Generate a hash for a list of texts for caching."""
+        # Create a hash based on all text content
+        content = "|".join(sorted(texts))
+        return hashlib.md5(content.encode()).hexdigest()
     
     def find_optimal_clusters(self, embeddings: np.ndarray, min_cluster_size: int = 3, max_clusters: int = 10) -> Tuple[np.ndarray, str]:
         """
@@ -205,7 +241,7 @@ class ClusteringEngine:
     
     def cluster_reviews(self, reviews: List[Review], min_cluster_size: int = 3) -> List[ComplaintClusterBase]:
         """
-        Cluster reviews into complaint categories using advanced NLP techniques.
+        Cluster reviews into complaint categories using advanced NLP techniques with caching.
         
         Args:
             reviews: List of processed Review objects
@@ -217,6 +253,14 @@ class ClusteringEngine:
         if len(reviews) < min_cluster_size:
             self.logger.warning(f"Insufficient reviews for clustering: {len(reviews)} < {min_cluster_size}")
             return []
+        
+        # Check cache for clustering results
+        reviews_hash = self._generate_reviews_hash(reviews)
+        if self.enable_caching:
+            cached_clusters = cache_service.get_cluster_results(reviews_hash)
+            if cached_clusters:
+                self.logger.info(f"Using cached clustering results for {len(reviews)} reviews")
+                return [ComplaintClusterBase(**cluster_data) for cluster_data in cached_clusters]
         
         # Extract and clean texts
         texts = []
@@ -247,8 +291,22 @@ class ClusteringEngine:
         # Rank clusters by frequency and recency
         ranked_clusters = self._rank_clusters_by_importance(clusters)
         
+        # Cache the results
+        if self.enable_caching and ranked_clusters:
+            cache_data = [cluster.dict() for cluster in ranked_clusters]
+            cache_service.cache_cluster_results(reviews_hash, cache_data, ttl=86400)  # 24 hours
+        
         self.logger.info(f"Created {len(ranked_clusters)} clusters using {algorithm}")
         return ranked_clusters
+    
+    def _generate_reviews_hash(self, reviews: List[Review]) -> str:
+        """Generate a hash for a list of reviews for caching."""
+        # Create a hash based on review IDs and text content
+        content = ""
+        for review in sorted(reviews, key=lambda r: r.id):
+            content += f"{review.id}:{review.text[:50]}"  # Use first 50 chars for efficiency
+        
+        return hashlib.md5(content.encode()).hexdigest()
     
     def _clean_text_for_clustering(self, text: str) -> str:
         """

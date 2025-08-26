@@ -36,7 +36,7 @@ class URLParser:
     ]
     
     # Direct app ID patterns
-    GOOGLE_PLAY_ID_PATTERN = r'^[a-zA-Z][a-zA-Z0-9._]*\.[a-zA-Z0-9._]*[a-zA-Z0-9]$'  # Must contain at least one dot
+    GOOGLE_PLAY_ID_PATTERN = r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*){2,}$'  # Must have at least 3 parts (com.company.app)
     APP_STORE_ID_PATTERN = r'^\d{8,10}$'
     
     def extract_app_id(self, url_or_id: str) -> AppIdentifier:
@@ -72,13 +72,32 @@ class URLParser:
         # Check if it contains URL-like patterns (domain with TLD)
         # But exclude simple package names like com.example.app
         if '.' in text:
+            # If it contains app store patterns, treat as URL
+            app_store_indicators = [
+                'play.google.com', 'apps.apple.com', 'itunes.apple.com'
+            ]
+            if any(indicator in text.lower() for indicator in app_store_indicators):
+                return True
+            
             # If it contains common URL patterns, treat as URL
             url_indicators = [
-                'play.google.com', 'apps.apple.com', 'itunes.apple.com',
                 '.com/', '.org/', '.net/', '.edu/', '.gov/',
                 'www.', 'http', 'https'
             ]
-            return any(indicator in text.lower() for indicator in url_indicators)
+            if any(indicator in text.lower() for indicator in url_indicators):
+                return True
+            
+            # Check if it looks like a domain name (has common TLD and no path)
+            # This helps catch cases like "gorgias.com" which should be treated as website URLs
+            # But exclude valid Google Play package names (which have at least 3 parts)
+            common_tlds = ['.com', '.org', '.net', '.edu', '.gov', '.io', '.co', '.app', '.dev']
+            if any(text.lower().endswith(tld) for tld in common_tlds) and '/' not in text:
+                # Check if it's a valid Google Play package name (at least 3 parts)
+                parts = text.split('.')
+                if len(parts) >= 3 and all(part.replace('_', '').replace('-', '').isalnum() for part in parts):
+                    # This looks like a valid package name, not a website URL
+                    return False
+                return True
         
         return False
     
@@ -107,6 +126,16 @@ class URLParser:
             return AppIdentifier(
                 app_id=app_id,
                 platform=Platform.APP_STORE
+            )
+        
+        # Check if this looks like a regular website URL
+        parsed = urlparse(url)
+        if parsed.netloc or any(url.lower().endswith(tld) for tld in ['.com', '.org', '.net', '.edu', '.gov', '.io', '.co', '.app', '.dev']):
+            raise URLParsingError(
+                f"'{url}' appears to be a website URL, not an app store URL. "
+                "For website analysis, please use the website analysis feature instead. "
+                "For app analysis, use Google Play Store URLs (play.google.com/store/apps/details?id=...) "
+                "or App Store URLs (apps.apple.com/.../id...)"
             )
         
         raise URLParsingError(

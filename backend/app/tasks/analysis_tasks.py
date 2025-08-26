@@ -17,6 +17,7 @@ from app.models.schemas import ReviewCreate, Platform
 from app.services.website_review_aggregator import WebsiteReviewAggregator
 from app.services.nlp_processor import NLPProcessor
 from app.services.clustering_engine import ClusteringEngine
+from app.services.performance_monitor import monitor, performance_monitor
 
 
 def update_task_progress(analysis_id: UUID, progress: float, message: str = None):
@@ -50,6 +51,7 @@ def update_task_progress(analysis_id: UUID, progress: float, message: str = None
 
 
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 60})
+@performance_monitor("app_analysis_task")
 def process_app_analysis(self, analysis_id: str, app_identifier_data: Dict[str, Any]):
     """
     Background task to process app analysis.
@@ -60,7 +62,7 @@ def process_app_analysis(self, analysis_id: str, app_identifier_data: Dict[str, 
     """
     analysis_uuid = UUID(analysis_id)
     db = SessionLocal()
-    
+
     try:
         # Update status to processing
         analysis = db.query(db_models.Analysis).filter(
@@ -86,20 +88,21 @@ def process_app_analysis(self, analysis_id: str, app_identifier_data: Dict[str, 
         
         # Scrape reviews
         try:
-            # Run async scraping in sync context
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            async def scrape_reviews():
-                async with ReviewScraperService() as scraper:
-                    return await scraper.scrape_reviews(
-                        app_identifier, 
-                        max_reviews=1000, 
-                        prioritize_recent=True
-                    )
-            
-            reviews = loop.run_until_complete(scrape_reviews())
-            loop.close()
+            with monitor.measure_time("review_scraping", {"app_id": app_identifier.app_id, "platform": app_identifier.platform}):
+                # Run async scraping in sync context
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                async def scrape_reviews():
+                    async with ReviewScraperService() as scraper:
+                        return await scraper.scrape_reviews(
+                            app_identifier, 
+                            max_reviews=1000, 
+                            prioritize_recent=True
+                        )
+                
+                reviews = loop.run_until_complete(scrape_reviews())
+                loop.close()
             
             if not reviews:
                 # Create a sample review to allow analysis to continue

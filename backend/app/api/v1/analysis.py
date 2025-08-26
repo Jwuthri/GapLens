@@ -22,6 +22,7 @@ from app.models.schemas import (
 from app.services.url_parser import URLParser, URLParsingError
 from app.services.review_scraper import ReviewScraperService, AppNotFoundError, RateLimitError
 from app.services.website_review_aggregator import WebsiteReviewAggregator
+from app.services.cache_service import cache_service
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 logger = logging.getLogger(__name__)
@@ -57,10 +58,19 @@ async def submit_analysis(
                 # raise HTTPException(status_code=500, detail=f"App analysis setup complete: app_id={app_id}, platform={platform}")
             except URLParsingError as e:
                 logger.error(f"URL parsing error: {str(e)}")
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid app URL or ID: {str(e)}"
-                )
+                error_message = str(e)
+                
+                # Provide more helpful error messages
+                if "appears to be a website URL" in error_message:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=error_message
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid app URL or ID: {error_message}"
+                    )
         else:
             # Website analysis
             logger.info(f"Processing website analysis for: {request.website_url}")
@@ -147,10 +157,16 @@ async def get_analysis_results(
     db: Session = Depends(get_db)
 ):
     """
-    Get complete analysis results including clusters and summary statistics.
+    Get complete analysis results including clusters and summary statistics with caching.
     """
     try:
-        # Get analysis with clusters
+        # Check cache first
+        cached_results = cache_service.get_analysis_results(analysis_id)
+        if cached_results:
+            logger.info(f"Returning cached results for analysis {analysis_id}")
+            return AnalysisResultsResponse(**cached_results)
+        
+        # Get analysis with clusters from database
         analysis = db.query(db_models.Analysis).filter(
             db_models.Analysis.id == analysis_id
         ).first()
@@ -211,11 +227,16 @@ async def get_analysis_results(
             platform=analysis.platform
         )
         
-        return AnalysisResultsResponse(
+        response = AnalysisResultsResponse(
             analysis=analysis_response,
             summary=summary,
             clusters=analysis_response.clusters
         )
+        
+        # Cache the results
+        cache_service.cache_analysis_results(analysis_id, response.dict(), ttl=7200)  # 2 hours
+        
+        return response
         
     except HTTPException:
         raise
@@ -232,9 +253,15 @@ async def get_analysis_status(
     db: Session = Depends(get_db)
 ):
     """
-    Get the current status and progress of an analysis.
+    Get the current status and progress of an analysis with caching.
     """
     try:
+        # Check cache for status (short TTL for real-time updates)
+        cached_status = cache_service.get_analysis_status(analysis_id)
+        if cached_status and cached_status.get("status") == "COMPLETED":
+            # Only use cached status for completed analyses
+            return AnalysisStatusResponse(**cached_status)
+        
         analysis = db.query(db_models.Analysis).filter(
             db_models.Analysis.id == analysis_id
         ).first()
@@ -273,12 +300,18 @@ async def get_analysis_status(
                 # If Celery is not available, use database values
                 pass
         
-        return AnalysisStatusResponse(
+        response = AnalysisStatusResponse(
             analysis_id=analysis.id,
             status=analysis.status,
             progress=progress,
             message=message
         )
+        
+        # Cache status with short TTL for active analyses, longer for completed
+        ttl = 3600 if analysis.status == db_models.AnalysisStatus.COMPLETED else 60
+        cache_service.cache_analysis_status(analysis_id, response.dict(), ttl=ttl)
+        
+        return response
         
     except HTTPException:
         raise
@@ -429,6 +462,10 @@ async def get_system_health():
     try:
         from app.core.celery_app import celery_app
         from app.tasks.maintenance_tasks import system_health_check
+        from app.services.performance_monitor import monitor
+        
+        # Get performance summary
+        performance_summary = monitor.get_performance_summary()
         
         # Run health check task
         health_result = system_health_check.delay()
@@ -436,16 +473,21 @@ async def get_system_health():
         # Wait for result with timeout
         try:
             health_data = health_result.get(timeout=10)
+            
+            # Combine health data with performance metrics
+            health_data['performance_metrics'] = performance_summary
             return health_data
+            
         except Exception as e:
-            # If health check task fails, return basic status
+            # If health check task fails, return basic status with performance data
             return {
                 'timestamp': datetime.now().isoformat(),
                 'overall_status': 'degraded',
                 'checks': {
                     'health_check_task': 'failed'
                 },
-                'errors': [f"Health check task failed: {str(e)}"]
+                'errors': [f"Health check task failed: {str(e)}"],
+                'performance_metrics': performance_summary
             }
             
     except Exception as e:
@@ -505,6 +547,74 @@ async def get_worker_status():
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get worker status: {str(e)}"
+        )
+
+
+@router.get("/system/performance")
+async def get_performance_metrics():
+    """
+    Get detailed performance metrics and statistics.
+    """
+    try:
+        from app.services.performance_monitor import monitor
+        
+        # Get comprehensive performance data
+        performance_data = {
+            'summary': monitor.get_performance_summary(),
+            'operations': monitor.get_all_operations_stats(hours=24),
+            'system_metrics': monitor.get_system_metrics(hours=1)
+        }
+        
+        return performance_data
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get performance metrics: {str(e)}"
+        )
+
+
+@router.get("/system/cache")
+async def get_cache_status():
+    """
+    Get cache status and statistics.
+    """
+    try:
+        cache_stats = cache_service.get_cache_stats()
+        
+        # Add cache key information
+        cache_info = {
+            'stats': cache_stats,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        return cache_info
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get cache status: {str(e)}"
+        )
+
+
+@router.post("/system/cache/clear")
+async def clear_cache(pattern: str = Query("*", description="Pattern to match for cache clearing")):
+    """
+    Clear cache entries matching the specified pattern.
+    """
+    try:
+        cleared_count = cache_service.clear_pattern(pattern)
+        
+        return {
+            'message': f'Cleared {cleared_count} cache entries matching pattern: {pattern}',
+            'cleared_count': cleared_count,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to clear cache: {str(e)}"
         )
 
 

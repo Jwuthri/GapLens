@@ -16,6 +16,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const [validation, setValidation] = useState<ValidationResult>({ isValid: false });
   const [showValidation, setShowValidation] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
+  const [userSelectedType, setUserSelectedType] = useState(false);
 
   // Debounced validation
   const validateInputDebounced = useCallback(
@@ -40,8 +41,8 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
     setInput(value);
     setHasInteracted(true);
     
-    // Auto-detect analysis type based on input
-    if (value.trim()) {
+    // Only auto-detect analysis type if user hasn't explicitly selected one
+    if (value.trim() && !userSelectedType) {
       const quickValidation = validateInput(value);
       if (quickValidation.isValid && quickValidation.type) {
         setAnalysisType(quickValidation.type);
@@ -90,7 +91,10 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
           <div className="flex space-x-4 justify-center">
             <button
               type="button"
-              onClick={() => setAnalysisType('APP')}
+              onClick={() => {
+                setAnalysisType('APP');
+                setUserSelectedType(true);
+              }}
               className={`px-8 py-4 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 ${
                 analysisType === 'APP'
                   ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg'
@@ -104,7 +108,10 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
             </button>
             <button
               type="button"
-              onClick={() => setAnalysisType('WEBSITE')}
+              onClick={() => {
+                setAnalysisType('WEBSITE');
+                setUserSelectedType(true);
+              }}
               className={`px-8 py-4 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 ${
                 analysisType === 'WEBSITE'
                   ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg'

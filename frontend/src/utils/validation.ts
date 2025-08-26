@@ -104,19 +104,56 @@ export function validateInput(input: string, options: ValidationOptions = {}): V
     }
   }
 
-  // App ID validation (without URL)
+  // Check if it looks like a domain name (without protocol)
+  if (trimmedInput.includes('.') && !trimmedInput.includes('/')) {
+    const parts = trimmedInput.split('.');
+    const lastPart = parts[parts.length - 1].toLowerCase();
+    
+    // Common TLDs that indicate this is likely a domain name, not an app ID
+    const commonTlds = ['com', 'org', 'net', 'edu', 'gov', 'io', 'co', 'app', 'dev', 'ai', 'tech'];
+    
+    // If it has a common TLD and is 2-3 parts, treat as domain
+    // If it has 3+ parts and doesn't end with common TLD, might be app ID
+    if (commonTlds.includes(lastPart) && parts.length <= 3) {
+      // This looks like a domain name, treat as website
+      try {
+        // Try to validate as URL by adding https://
+        const urlWithProtocol = `https://${trimmedInput}`;
+        new URL(urlWithProtocol); // This will throw if invalid
+        return { isValid: true, type: 'WEBSITE', warnings };
+      } catch {
+        return { isValid: false, error: 'Invalid domain name format' };
+      }
+    }
+    
+    // Special case: if it's exactly 3 parts and doesn't end with common TLD, 
+    // it might be an app ID like com.example.app
+    if (parts.length === 3 && !commonTlds.includes(lastPart)) {
+      // Check if it looks like a valid app ID
+      const isValidPackageName = parts.every(part => 
+        part.length > 0 && 
+        /^[a-zA-Z][a-zA-Z0-9_]*$/.test(part)
+      );
+      
+      if (isValidPackageName) {
+        return { isValid: true, type: 'APP', warnings };
+      }
+    }
+  }
+
+  // App ID validation (package names)
   if (trimmedInput.includes('.')) {
     // Basic package name validation
     const parts = trimmedInput.split('.');
     
-    if (parts.length < 2) {
+    if (parts.length < 3) {
       return { 
         isValid: false, 
         error: ERROR_MESSAGES.INVALID_APP_ID 
       };
     }
 
-    // Check for valid package name format
+    // Check for valid package name format (must have at least 3 parts for app IDs)
     const isValidPackageName = parts.every(part => 
       part.length > 0 && 
       /^[a-zA-Z][a-zA-Z0-9_]*$/.test(part)

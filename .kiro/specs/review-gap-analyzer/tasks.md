@@ -113,7 +113,7 @@
   - Set up test coverage reporting and CI/CD pipeline integration
   - _Requirements: 6.4_
 
-- [ ] 15. Optimize performance and add caching
+- [x] 15. Optimize performance and add caching
   - Implement Redis caching for frequently accessed analysis results
   - Add database query optimization with proper indexing
   - Optimize NLP processing for large review datasets
@@ -121,7 +121,7 @@
   - Add performance monitoring and logging throughout the application
   - _Requirements: 6.2, 6.3_
 
-- [ ] 16. Deploy and configure production environment
+- [-] 16. Deploy and configure production environment
   - Set up production deployment configuration for FastAPI backend
   - Configure Next.js build and deployment for frontend
   - Set up production PostgreSQL and Redis instances

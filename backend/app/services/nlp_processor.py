@@ -1,10 +1,13 @@
-"""NLP text processing pipeline for review analysis."""
+"""NLP text processing pipeline for review analysis with performance optimizations."""
 
 import re
 import string
-from typing import List, Set, Tuple
+import hashlib
+import logging
+from typing import List, Set, Tuple, Optional
 from collections import Counter
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import nltk
 import numpy as np
@@ -16,13 +19,24 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from ..models.schemas import Review, ComplaintClusterBase
 from .clustering_engine import ClusteringEngine, InsightsGenerator
+from .cache_service import cache_service
 
 
 class NLPProcessor:
-    """NLP processing engine for review text analysis and clustering."""
+    """NLP processing engine for review text analysis and clustering with performance optimizations."""
     
-    def __init__(self):
-        """Initialize the NLP processor with required NLTK data."""
+    def __init__(self, enable_caching: bool = True, max_workers: int = 4):
+        """
+        Initialize the NLP processor with required NLTK data.
+        
+        Args:
+            enable_caching: Whether to enable caching for expensive operations
+            max_workers: Maximum number of threads for parallel processing
+        """
+        self.logger = logging.getLogger(__name__)
+        self.enable_caching = enable_caching
+        self.max_workers = max_workers
+        
         self._ensure_nltk_data()
         self.stopwords = self._get_stopwords()
         self.emoji_pattern = re.compile(
@@ -39,6 +53,9 @@ class NLPProcessor:
         # Initialize advanced clustering engine
         self.clustering_engine = ClusteringEngine()
         self.insights_generator = InsightsGenerator()
+        
+        # Batch processing settings
+        self.batch_size = 100  # Process reviews in batches for memory efficiency
     
     def _ensure_nltk_data(self) -> None:
         """Download required NLTK data if not present."""
@@ -174,7 +191,7 @@ class NLPProcessor:
     
     def remove_duplicates(self, reviews: List[Review], similarity_threshold: float = 0.85) -> List[Review]:
         """
-        Remove duplicate reviews based on text similarity.
+        Remove duplicate reviews based on text similarity with performance optimizations.
         
         Args:
             reviews: List of Review objects
@@ -186,40 +203,93 @@ class NLPProcessor:
         if len(reviews) <= 1:
             return reviews
         
+        # For large datasets, use a more efficient approach
+        if len(reviews) > 1000:
+            return self._remove_duplicates_efficient(reviews, similarity_threshold)
+        
         # Extract and normalize texts
         texts = [self.normalize_text(review.text) for review in reviews]
         
-        # Create TF-IDF vectors
-        vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')
+        # Create TF-IDF vectors with optimized parameters
+        vectorizer = TfidfVectorizer(
+            max_features=min(1000, len(reviews) * 10),
+            stop_words='english',
+            min_df=1,
+            max_df=0.95
+        )
+        
         try:
             tfidf_matrix = vectorizer.fit_transform(texts)
         except ValueError:
             # If all texts are empty after normalization, return original reviews
             return reviews
         
-        # Calculate similarity matrix
-        similarity_matrix = cosine_similarity(tfidf_matrix)
-        
-        # Find duplicates
+        # Calculate similarity matrix in chunks for memory efficiency
         unique_indices = []
         processed = set()
         
-        for i in range(len(reviews)):
-            if i in processed:
-                continue
+        chunk_size = 100
+        for i in range(0, len(reviews), chunk_size):
+            end_i = min(i + chunk_size, len(reviews))
             
-            unique_indices.append(i)
-            
-            # Mark similar reviews as processed
-            for j in range(i + 1, len(reviews)):
-                if j not in processed and similarity_matrix[i][j] >= similarity_threshold:
-                    processed.add(j)
+            for idx in range(i, end_i):
+                if idx in processed:
+                    continue
+                
+                unique_indices.append(idx)
+                
+                # Calculate similarity for this review against remaining reviews
+                current_vector = tfidf_matrix[idx:idx+1]
+                remaining_vectors = tfidf_matrix[idx+1:]
+                
+                if remaining_vectors.shape[0] > 0:
+                    similarities = cosine_similarity(current_vector, remaining_vectors).flatten()
+                    
+                    # Mark similar reviews as processed
+                    for j, sim in enumerate(similarities):
+                        actual_j = idx + 1 + j
+                        if actual_j not in processed and sim >= similarity_threshold:
+                            processed.add(actual_j)
         
         return [reviews[i] for i in unique_indices]
     
+    def _remove_duplicates_efficient(self, reviews: List[Review], similarity_threshold: float = 0.85) -> List[Review]:
+        """
+        Efficient duplicate removal for large datasets using hashing and sampling.
+        
+        Args:
+            reviews: List of Review objects
+            similarity_threshold: Similarity threshold
+            
+        Returns:
+            List of unique reviews
+        """
+        # First pass: remove exact duplicates using text hashing
+        seen_hashes = set()
+        unique_reviews = []
+        
+        for review in reviews:
+            text_hash = hashlib.md5(review.text.encode()).hexdigest()
+            if text_hash not in seen_hashes:
+                seen_hashes.add(text_hash)
+                unique_reviews.append(review)
+        
+        # If still too many reviews, use sampling for similarity check
+        if len(unique_reviews) > 2000:
+            # Sample reviews for similarity checking
+            import random
+            sample_size = min(1000, len(unique_reviews))
+            sampled_reviews = random.sample(unique_reviews, sample_size)
+            
+            # Apply full similarity check to sample
+            return self.remove_duplicates(sampled_reviews, similarity_threshold)
+        
+        # Apply full similarity check to remaining reviews
+        return self.remove_duplicates(unique_reviews, similarity_threshold)
+    
     def process_reviews(self, reviews: List[Review]) -> List[Review]:
         """
-        Complete processing pipeline for reviews.
+        Complete processing pipeline for reviews with performance optimizations.
         
         Args:
             reviews: List of Review objects
@@ -227,13 +297,49 @@ class NLPProcessor:
         Returns:
             List of processed negative reviews with duplicates removed
         """
-        # Filter for negative reviews
-        negative_reviews = self.filter_negative_reviews(reviews)
+        if not reviews:
+            return []
         
-        # Remove duplicates
-        unique_reviews = self.remove_duplicates(negative_reviews)
+        # Check cache for processed reviews
+        reviews_hash = self._generate_reviews_hash(reviews)
+        if self.enable_caching:
+            cached_result = cache_service.get(f"nlp:processed:{reviews_hash}")
+            if cached_result:
+                self.logger.info(f"Using cached processed reviews for {len(reviews)} reviews")
+                return [Review(**review_data) for review_data in cached_result]
         
+        self.logger.info(f"Processing {len(reviews)} reviews...")
+        
+        # Process in batches for memory efficiency
+        all_negative_reviews = []
+        
+        for i in range(0, len(reviews), self.batch_size):
+            batch = reviews[i:i + self.batch_size]
+            self.logger.debug(f"Processing batch {i//self.batch_size + 1}/{(len(reviews) + self.batch_size - 1)//self.batch_size}")
+            
+            # Filter for negative reviews in batch
+            batch_negative = self.filter_negative_reviews(batch)
+            all_negative_reviews.extend(batch_negative)
+        
+        # Remove duplicates from all negative reviews
+        unique_reviews = self.remove_duplicates(all_negative_reviews)
+        
+        # Cache the result
+        if self.enable_caching and unique_reviews:
+            cache_data = [review.dict() for review in unique_reviews]
+            cache_service.set(f"nlp:processed:{reviews_hash}", cache_data, ttl=3600)
+        
+        self.logger.info(f"Processed {len(reviews)} reviews -> {len(unique_reviews)} unique negative reviews")
         return unique_reviews
+    
+    def _generate_reviews_hash(self, reviews: List[Review]) -> str:
+        """Generate a hash for a list of reviews for caching."""
+        # Create a hash based on review IDs and text content
+        content = ""
+        for review in sorted(reviews, key=lambda r: r.id):
+            content += f"{review.id}:{review.text[:100]}"  # Use first 100 chars for efficiency
+        
+        return hashlib.md5(content.encode()).hexdigest()
     
     def extract_keywords(self, texts: List[str], max_keywords: int = 10) -> List[str]:
         """
