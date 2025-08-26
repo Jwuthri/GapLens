@@ -1,0 +1,142 @@
+# AWS ECS Deployment Configuration
+# Deploy using AWS CDK, CloudFormation, or Terraform
+
+# ECS Task Definition for Backend
+apiVersion: v1
+kind: ECSTaskDefinition
+metadata:
+  name: review-gap-analyzer-backend
+spec:
+  family: review-gap-analyzer-backend
+  networkMode: awsvpc
+  requiresCompatibilities:
+    - FARGATE
+  cpu: 1024  # 1 vCPU
+  memory: 2048  # 2GB RAM
+  executionRoleArn: arn:aws:iam::ACCOUNT:role/ecsTaskExecutionRole
+  taskRoleArn: arn:aws:iam::ACCOUNT:role/ecsTaskRole
+  containerDefinitions:
+    - name: backend
+      image: ACCOUNT.dkr.ecr.REGION.amazonaws.com/review-gap-analyzer-backend:latest
+      portMappings:
+        - containerPort: 8000
+          protocol: tcp
+      environment:
+        - name: ENVIRONMENT
+          value: production
+        - name: LOG_LEVEL
+          value: INFO
+      secrets:
+        - name: SECRET_KEY
+          valueFrom: arn:aws:secretsmanager:REGION:ACCOUNT:secret:review-gap-analyzer/SECRET_KEY
+        - name: DATABASE_URL
+          valueFrom: arn:aws:secretsmanager:REGION:ACCOUNT:secret:review-gap-analyzer/DATABASE_URL
+        - name: REDIS_URL
+          valueFrom: arn:aws:secretsmanager:REGION:ACCOUNT:secret:review-gap-analyzer/REDIS_URL
+      logConfiguration:
+        logDriver: awslogs
+        options:
+          awslogs-group: /ecs/review-gap-analyzer-backend
+          awslogs-region: us-east-1
+          awslogs-stream-prefix: ecs
+      healthCheck:
+        command:
+          - CMD-SHELL
+          - curl -f http://localhost:8000/health || exit 1
+        interval: 30
+        timeout: 5
+        retries: 3
+        startPeriod: 60
+
+---
+# ECS Task Definition for Frontend
+apiVersion: v1
+kind: ECSTaskDefinition
+metadata:
+  name: review-gap-analyzer-frontend
+spec:
+  family: review-gap-analyzer-frontend
+  networkMode: awsvpc
+  requiresCompatibilities:
+    - FARGATE
+  cpu: 512  # 0.5 vCPU
+  memory: 1024  # 1GB RAM
+  executionRoleArn: arn:aws:iam::ACCOUNT:role/ecsTaskExecutionRole
+  containerDefinitions:
+    - name: frontend
+      image: ACCOUNT.dkr.ecr.REGION.amazonaws.com/review-gap-analyzer-frontend:latest
+      portMappings:
+        - containerPort: 3000
+          protocol: tcp
+      environment:
+        - name: NODE_ENV
+          value: production
+        - name: NEXT_PUBLIC_API_URL
+          value: https://api.yourdomain.com
+      logConfiguration:
+        logDriver: awslogs
+        options:
+          awslogs-group: /ecs/review-gap-analyzer-frontend
+          awslogs-region: us-east-1
+          awslogs-stream-prefix: ecs
+      healthCheck:
+        command:
+          - CMD-SHELL
+          - curl -f http://localhost:3000/api/health || exit 1
+        interval: 30
+        timeout: 5
+        retries: 3
+
+---
+# ECS Service for Backend
+apiVersion: v1
+kind: ECSService
+metadata:
+  name: review-gap-analyzer-backend-service
+spec:
+  cluster: review-gap-analyzer-cluster
+  taskDefinition: review-gap-analyzer-backend
+  desiredCount: 2
+  launchType: FARGATE
+  networkConfiguration:
+    awsvpcConfiguration:
+      subnets:
+        - subnet-12345678  # Private subnet
+        - subnet-87654321  # Private subnet
+      securityGroups:
+        - sg-backend123
+      assignPublicIp: DISABLED
+  loadBalancers:
+    - targetGroupArn: arn:aws:elasticloadbalancing:REGION:ACCOUNT:targetgroup/backend-tg/1234567890123456
+      containerName: backend
+      containerPort: 8000
+  deploymentConfiguration:
+    maximumPercent: 200
+    minimumHealthyPercent: 50
+    deploymentCircuitBreaker:
+      enable: true
+      rollback: true
+
+---
+# ECS Service for Frontend
+apiVersion: v1
+kind: ECSService
+metadata:
+  name: review-gap-analyzer-frontend-service
+spec:
+  cluster: review-gap-analyzer-cluster
+  taskDefinition: review-gap-analyzer-frontend
+  desiredCount: 2
+  launchType: FARGATE
+  networkConfiguration:
+    awsvpcConfiguration:
+      subnets:
+        - subnet-12345678  # Private subnet
+        - subnet-87654321  # Private subnet
+      securityGroups:
+        - sg-frontend123
+      assignPublicIp: DISABLED
+  loadBalancers:
+    - targetGroupArn: arn:aws:elasticloadbalancing:REGION:ACCOUNT:targetgroup/frontend-tg/1234567890123456
+      containerName: frontend
+      containerPort: 3000
