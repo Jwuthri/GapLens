@@ -27,7 +27,7 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 # Set the database URL from environment variable
-database_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/review_gap_analyzer")
+database_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5434/review_gap_analyzer")
 config.set_main_option("sqlalchemy.url", database_url)
 
 # other values from the config, defined by the needs of env.py,

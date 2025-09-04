@@ -36,7 +36,7 @@ A web application for analyzing app store reviews to identify user pain points a
 
 - **Frontend**: http://localhost:3000 (Next.js)
 - **Backend API**: http://localhost:8000 (FastAPI)
-- **PostgreSQL**: localhost:5432
+- **PostgreSQL**: localhost:5434
 - **Redis**: localhost:6379
 
 ## API Documentation

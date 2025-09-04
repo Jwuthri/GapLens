@@ -13,11 +13,11 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements-docker.txt .
+COPY requirements.txt .
 RUN pip install --upgrade pip
 
 # Install requirements with preference for pre-built wheels
-RUN pip install --no-cache-dir --prefer-binary -r requirements-docker.txt
+RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 COPY . .
 

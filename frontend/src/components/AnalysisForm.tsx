@@ -136,7 +136,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
                 </div>
                 <div className="flex-1 text-center">
                   <span className="text-xs text-gray-400 font-mono">
-                    {analysisType === 'APP' ? 'app-analyzer' : 'web-analyzer'} — zsh — 80×24
+                    {analysisType === 'APP' ? 'app-analyzer' : 'web-analyzer'} — zsh
                   </span>
                 </div>
               </div>

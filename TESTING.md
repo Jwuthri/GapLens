@@ -306,7 +306,7 @@ The CI pipeline runs:
 
 ```bash
 # Install test dependencies
-pip install -r requirements-test.txt
+pip install -r requirements.txt
 
 # Set environment variables
 export DATABASE_URL="sqlite:///test.db"

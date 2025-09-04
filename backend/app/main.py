@@ -10,7 +10,7 @@ import redis
 from sqlalchemy import text
 
 from app.api import router as api_router
-from app.database.connection import get_db_session
+from app.database.connection import get_db
 
 # Configure logging
 logging.basicConfig(
@@ -80,7 +80,7 @@ async def detailed_health_check():
     
     # Check database connection
     try:
-        db = next(get_db_session())
+        db = next(get_db())
         db.execute(text("SELECT 1"))
         health_status["checks"]["database"] = {"status": "healthy"}
     except Exception as e:
@@ -154,7 +154,7 @@ async def readiness_check():
     """Kubernetes readiness probe endpoint"""
     try:
         # Check if application is ready to serve requests
-        db = next(get_db_session())
+        db = next(get_db())
         db.execute(text("SELECT 1"))
         
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")

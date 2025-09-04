@@ -15,7 +15,7 @@ class TestDatabaseConnection:
         db_gen = get_db()
         assert hasattr(db_gen, '__next__')  # Check if it's a generator
     
-    def test_get_db_session_cleanup(self):
+    def test_get_db_cleanup(self):
         """Test that get_db properly cleans up sessions."""
         # This test ensures the session is properly closed
         db_gen = get_db()

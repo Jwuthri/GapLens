@@ -9,7 +9,7 @@ from sqlalchemy.pool import QueuePool
 from sqlalchemy.engine import Engine
 
 # Database URL from environment variable
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/review_gap_analyzer")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/review_gap_analyzer")
 
 # Connection pool configuration
 POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
@@ -39,7 +39,7 @@ engine = create_engine(
         "connect_timeout": 10,
         "application_name": "review_gap_analyzer",
         # PostgreSQL-specific optimizations
-        "options": "-c default_transaction_isolation=read_committed"
+        "options": "-c default_transaction_isolation='read committed'"
     }
 )
 
