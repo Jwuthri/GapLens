@@ -384,7 +384,8 @@ def process_website_analysis(self, analysis_id: str, website_url: str):
                         text=review_data.text,
                         review_date=review_data.date,  # WebsiteReview uses 'date', not 'review_date'
                         locale="en",  # Default locale for website reviews
-                        author=review_data.author
+                        author=review_data.author,
+                        metadata=getattr(review_data, 'metadata', {})  # Add platform-specific metadata
                     )
                     db.add(review)
                     stored_count += 1

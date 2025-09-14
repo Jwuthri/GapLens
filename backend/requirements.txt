@@ -54,3 +54,9 @@ mypy==1.7.1
 # Performance testing
 pytest-benchmark==4.0.0
 memory-profiler==0.61.0
+
+# Scrapping
+botasaurus
+
+# Logging
+rich

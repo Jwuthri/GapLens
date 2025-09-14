@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -71,6 +71,7 @@ class ReviewBase(BaseModel):
     review_date: datetime
     locale: Optional[str] = Field(None, max_length=10)
     author: Optional[str] = Field(None, max_length=255, description="Review author name")
+    metadata: Optional[dict] = Field(None, description="Platform-specific metadata as JSON")
 
 
 class ReviewCreate(ReviewBase):

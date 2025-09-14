@@ -9,7 +9,7 @@ import json
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Enum as SQLEnum, ForeignKey, 
-    Integer, Numeric, String, Text, TypeDecorator
+    Integer, JSON, Numeric, String, Text, TypeDecorator
 )
 from sqlalchemy.types import TypeDecorator, VARCHAR
 from sqlalchemy.dialects.postgresql import JSONB as PostgresJSONB, UUID as PostgresUUID
@@ -158,6 +158,7 @@ class Review(Base):
     review_date = Column(DateTime, nullable=False)
     locale = Column(String, nullable=True)
     author = Column(String, nullable=True)  # Review author name
+    metadata = Column(JSON, nullable=True)  # Platform-specific metadata as JSON
     processed = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=func.now(), nullable=False)
     
