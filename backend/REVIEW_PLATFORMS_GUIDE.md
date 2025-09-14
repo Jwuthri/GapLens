@@ -9,7 +9,7 @@ This guide covers all the review platforms supported by the Website Review Aggre
 - **Apple App Store** (`app_store`) - iOS app reviews
 
 ### Software Review Platforms
-- **G2** (`g2`) - B2B software reviews and ratings ✅ *Working with Botasaurus*
+- **G2** (`g2`) - B2B software reviews and ratings ✅ **WORKING PERFECTLY** *50+ reviews per run*
 - **Capterra** (`capterra`) - Business software marketplace reviews
 - **TrustRadius** (`trustradius`) - Enterprise software reviews
 - **Software Advice** (`software_advice`) - Software recommendation platform

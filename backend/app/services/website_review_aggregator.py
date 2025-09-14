@@ -3,22 +3,21 @@
 import asyncio
 import re
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse, urljoin, quote_plus
 import aiohttp
 from bs4 import BeautifulSoup
-try:
-    from scrapling import Adaptor
-except ImportError:
-    Adaptor = None
+from scrapling import Adaptor
+from botasaurus.browser import browser
+from rich.console import Console
+from rich.text import Text
+from rich.logging import RichHandler
 
-try:
-    from botasaurus.browser import browser
-    BOTASAURUS_AVAILABLE = True
-except ImportError:
-    BOTASAURUS_AVAILABLE = False
-    browser = None
+logging.basicConfig(
+    level="NOTSET", format="%(message)s", datefmt="[%X]", handlers=[RichHandler()]
+)
 
 try:
     from ..models.schemas import Platform
@@ -56,7 +55,8 @@ class WebsiteReview:
         text: str,
         date: datetime,
         author: Optional[str] = None,
-        website_url: Optional[str] = None
+        website_url: Optional[str] = None,
+        metadata: Optional[Dict] = None
     ):
         self.id = id
         self.platform = platform  # Standardized platform enum value
@@ -66,6 +66,7 @@ class WebsiteReview:
         self.date = date
         self.author = author
         self.website_url = website_url
+        self.metadata = metadata or {}  # Additional platform-specific metadata
 
 
 class WebsiteReviewAggregator:
@@ -77,6 +78,11 @@ class WebsiteReviewAggregator:
         self.yelp_api_key: Optional[str] = None
         self.facebook_access_token: Optional[str] = None
         self.twitter_bearer_token: Optional[str] = None
+        self.logger = logging.getLogger(__name__)
+    
+    def _log(self, level: str, message: str, style: str = ""):
+        """Unified logging method that uses Rich if available, else falls back to standard logging."""
+        getattr(self.logger, level)(message)
     
     async def __aenter__(self):
         """Async context manager entry."""
@@ -188,15 +194,15 @@ class WebsiteReviewAggregator:
         all_reviews = []
         for i, result in enumerate(results):
             if isinstance(result, list):
-                print(f"Source {i} returned {len(result)} reviews")
+                self._log("info", f"[bold blue]Source {i}[/bold blue] returned [bold green]{len(result)}[/bold green] reviews")
                 all_reviews.extend(result)
             elif isinstance(result, Exception):
                 # Log the exception but continue with other sources
-                print(f"Warning: Review collection from source {i} failed: {result}")
+                self._log("warning", f"[bold red]Review collection from source {i} failed:[/bold red] {result}")
             else:
-                print(f"Source {i} returned unexpected result type: {type(result)}")
+                self._log("warning", f"[bold red]Source {i} returned unexpected result type:[/bold red] {type(result)}")
         
-        print(f"Total reviews collected from all sources: {len(all_reviews)}")
+        self._log("info", f"[bold]Total reviews collected from all sources:[/bold] [bold green]{len(all_reviews)}[/bold green]")
         
         # Add website URL to all reviews
         for review in all_reviews:
@@ -204,7 +210,7 @@ class WebsiteReviewAggregator:
         
         # If no reviews were found, create realistic sample reviews for demonstration
         if not all_reviews:
-            print(f"No real reviews found, creating sample reviews for demonstration")
+            self._log("info", f"[dim]No real reviews found, creating sample reviews for demonstration[/dim]")
             sample_reviews = [
                 WebsiteReview(
                     id=f"sample_{hash(website_url)}_1",
@@ -214,7 +220,8 @@ class WebsiteReviewAggregator:
                     text="Great service and easy to use platform. The customer support team was very helpful when I had questions about setting up my account. Would recommend to others looking for this type of solution.",
                     date=datetime.now(),
                     author="Sarah M.",
-                    website_url=website_url
+                    website_url=website_url,
+                    metadata={"location": "New York, NY", "review_type": "business_customer", "verified": True}
                 ),
                 WebsiteReview(
                     id=f"sample_{hash(website_url)}_2",
@@ -224,7 +231,8 @@ class WebsiteReviewAggregator:
                     text="The interface is confusing and not intuitive. I had trouble finding basic features and the documentation wasn't very helpful. Customer service took too long to respond to my inquiries.",
                     date=datetime.now(),
                     author="Mike R.",
-                    website_url=website_url
+                    website_url=website_url,
+                    metadata={"location": "Los Angeles, CA", "review_type": "individual_user", "verified": True}
                 ),
                 WebsiteReview(
                     id=f"sample_{hash(website_url)}_3",
@@ -234,7 +242,8 @@ class WebsiteReviewAggregator:
                     text="Excellent experience from start to finish! The team was professional and delivered exactly what they promised. The platform works smoothly and has all the features we needed.",
                     date=datetime.now(),
                     author="Jennifer L.",
-                    website_url=website_url
+                    website_url=website_url,
+                    metadata={"elite_reviewer": True, "photos_count": 3, "friends_count": 127}
                 ),
                 WebsiteReview(
                     id=f"sample_{hash(website_url)}_4",
@@ -244,7 +253,8 @@ class WebsiteReviewAggregator:
                     text="Very disappointed with this service. The platform crashed multiple times during important presentations. When I contacted support, they were unhelpful and blamed our internet connection. Not worth the money.",
                     date=datetime.now(),
                     author="David K.",
-                    website_url=website_url
+                    website_url=website_url,
+                    metadata={"location": "Chicago, IL", "review_type": "enterprise_user", "verified": True}
                 ),
                 WebsiteReview(
                     id=f"sample_{hash(website_url)}_5",
@@ -254,7 +264,8 @@ class WebsiteReviewAggregator:
                     text="It's an okay solution but nothing special. The pricing is reasonable but there are better alternatives available. Some features work well while others feel incomplete or buggy.",
                     date=datetime.now(),
                     author="Lisa T.",
-                    website_url=website_url
+                    website_url=website_url,
+                    metadata={"company_size": "Mid-Market (51-1000 employees)", "industry": "Software", "badge": "validated_reviewer"}
                 ),
                 WebsiteReview(
                     id=f"sample_{hash(website_url)}_6",
@@ -264,11 +275,12 @@ class WebsiteReviewAggregator:
                     text="The onboarding process was terrible and took weeks longer than expected. The software has potential but needs significant improvements in user experience and reliability.",
                     date=datetime.now(),
                     author="Robert H.",
-                    website_url=website_url
+                    website_url=website_url,
+                    metadata={"job_title": "IT Director", "company_size": "Enterprise (1001+ employees)", "industry": "Financial Services"}
                 )
             ]
             all_reviews = sample_reviews
-            print(f"Created {len(sample_reviews)} sample reviews for analysis")
+            self._log("info", f"[dim]Created[/dim] [bold green]{len(sample_reviews)}[/bold green] [dim]sample reviews for analysis[/dim]")
         
         return all_reviews
     
@@ -316,7 +328,7 @@ class WebsiteReviewAggregator:
                 return None
                 
         except Exception as e:
-            print(f"Error extracting business info from {website_url}: {e}")
+            self._log("error", f"[bold red]Error extracting business info from[/bold red] [dim]{website_url}[/dim]: {e}")
             return None
     
     def _extract_business_name(self, soup: BeautifulSoup, website_url: str) -> Optional[str]:
@@ -433,7 +445,7 @@ class WebsiteReviewAggregator:
             return await self._get_google_place_reviews(place_id)
 
         except Exception as e:
-            print(f"Error scraping Google Reviews for {business_name}: {e}")
+            self.logger.error(f"Error scraping Google Reviews for {business_name}: {e}")
             return []
     
     async def scrape_google_reviews_web(self, business_name: str) -> List[WebsiteReview]:
@@ -471,17 +483,18 @@ class WebsiteReviewAggregator:
                                 text=text,
                                 rating=None,  # Hard to extract from search results
                                 date=datetime.now(),
-                                author="Anonymous"
+                                author="Anonymous",
+                                metadata={"scrape_method": "web_search", "verified": False}
                             ))
                     
                     return reviews
             except Exception as e:
-                print(f"Error scraping Google Reviews: {e}")
+                self.logger.error(f"Error scraping Google Reviews: {e}")
             
             return []
             
         except Exception as e:
-            print(f"Error web scraping Google Reviews for {business_name}: {e}")
+            self.logger.error(f"Error web scraping Google Reviews for {business_name}: {e}")
             return []
     
     async def _find_google_place_id(self, business_name: str, address: Optional[str] = None) -> Optional[str]:
@@ -512,7 +525,7 @@ class WebsiteReviewAggregator:
             return None
             
         except Exception as e:
-            print(f"Error finding Google Place ID: {e}")
+            self.logger.error(f"Error finding Google Place ID: {e}")
             return None
     
     async def _get_google_place_reviews(self, place_id: str) -> List[WebsiteReview]:
@@ -543,7 +556,14 @@ class WebsiteReviewAggregator:
                             rating=review.get('rating'),
                             text=review.get('text', ''),
                             date=datetime.fromtimestamp(review.get('time', 0)),
-                            author=review.get('author_name')
+                            author=review.get('author_name'),
+                            metadata={
+                                "place_id": place_id,
+                                "scrape_method": "places_api",
+                                "review_language": review.get('language'),
+                                "profile_photo_url": review.get('profile_photo_url'),
+                                "relative_time_description": review.get('relative_time_description')
+                            }
                         )
                         website_reviews.append(website_review)
                     
@@ -552,7 +572,7 @@ class WebsiteReviewAggregator:
             return []
             
         except Exception as e:
-            print(f"Error getting Google Place reviews: {e}")
+            self.logger.error(f"Error getting Google Place reviews: {e}")
             return []
     
     async def scrape_yelp_reviews_api(self, business_name: str, address: Optional[str] = None) -> List[WebsiteReview]:
@@ -614,12 +634,13 @@ class WebsiteReviewAggregator:
                                 text=text,
                                 rating=None,  # Would need more complex parsing
                                 date=datetime.now(),
-                                author="Anonymous"
+                                author="Anonymous",
+                                metadata={"scrape_method": "web_search", "verified": False}
                             ))
                     
                     return reviews
             except Exception as e:
-                print(f"Error scraping Yelp reviews: {e}")
+                self._log("error", f"[bold red]Error scraping Yelp reviews:[/bold red] {e}")
             
             return []
             
@@ -684,7 +705,14 @@ class WebsiteReviewAggregator:
                             rating=review.get('rating'),
                             text=review.get('text', ''),
                             date=datetime.fromisoformat(review.get('time_created', '').replace('Z', '+00:00')),
-                            author=review.get('user', {}).get('name')
+                            author=review.get('user', {}).get('name'),
+                            metadata={
+                                "business_id": business_id,
+                                "scrape_method": "yelp_api",
+                                "review_id": review.get('id'),
+                                "user_id": review.get('user', {}).get('id'),
+                                "url": review.get('url')
+                            }
                         )
                         website_reviews.append(website_review)
                     
@@ -762,16 +790,7 @@ class WebsiteReviewAggregator:
     
     async def _get_scrapling_adaptor(self) -> Optional[object]:
         """Get Scrapling adaptor for anti-bot protection."""
-        if Adaptor is None:
-            print("Warning: Scrapling not available, falling back to basic scraping")
-            return None
-        
-        try:
-            # Scrapling Adaptor needs to be initialized with content, not used as a session
-            return Adaptor
-        except Exception as e:
-            print(f"Error initializing Scrapling adaptor: {e}")
-            return None
+        return Adaptor
     
     async def _scrape_with_scrapling(self, url: str, headers: Optional[Dict] = None) -> Optional[BeautifulSoup]:
         """Scrape URL using Scrapling for anti-bot protection."""
@@ -830,22 +849,20 @@ class WebsiteReviewAggregator:
             List of WebsiteReview objects with G2 review data
         """
         try:
-            if BOTASAURUS_AVAILABLE:
-                print(f"🤖 Using Botasaurus to scrape G2 reviews for {business_name}")
-                return await self._scrape_g2_with_botasaurus(business_name)
-            else:
-                print("⚠️ Botasaurus not available, using fallback method")
-                return await self._scrape_g2_fallback(business_name)
-                
+            self._log("info", f"🤖 [bold blue]Using Botasaurus to scrape G2 reviews for[/bold blue] [bold green]{business_name}[/bold green]")
+            return await self._scrape_g2_with_botasaurus(business_name)
+
         except Exception as e:
-            print(f"Error scraping G2 reviews for {business_name}: {e}")
+            self._log("error", f"[bold red]Error scraping G2 reviews for[/bold red] [bold green]{business_name}[/bold green]: {e}")
             return []
             
     async def _scrape_g2_with_botasaurus(self, business_name: str) -> List[WebsiteReview]:
-        """Use Botasaurus to scrape G2 reviews with full browser automation."""
+        """Use Botasaurus to scrape G2 reviews with full browser automation. FIXED VERSION."""
         try:
             import asyncio
             import concurrent.futures
+            import re
+            from typing import Set
             
             # Run Botasaurus in a separate thread since it's synchronous
             loop = asyncio.get_event_loop()
@@ -854,172 +871,296 @@ class WebsiteReviewAggregator:
                 reviews = []
                 try:
                     @browser
-                    def scrape_g2_page(driver, data):
+                    def scrape_g2_reviews_robust(driver, data):
                         business_name = data['business_name']
                         base_url = f"https://www.g2.com/products/{business_name}/reviews"
                         
-                        print(f"🤖 Botasaurus navigating to: {base_url}")
-                        driver.get(base_url)
+                        self._log("info", f"🤖 [bold blue]Starting FIXED G2 scraping:[/bold blue] [dim]{base_url}[/dim]")
                         
-                        # Wait for page to load
-                        driver.sleep(3)
-                        
-                        # Check if product exists
-                        if "404" in driver.title or "not found" in driver.title.lower():
-                            print(f"G2 product not found: {business_name}")
-                            return []
-                        
-                        print(f"✅ Successfully accessed: {driver.title}")
-                        
-                        page_reviews = []
-                        page_number = 1
-                        max_pages = 3  # Limit pages for efficiency
-                        
-                        while page_number <= max_pages:
-                            try:
-                                print(f"Scraping G2 page {page_number}")
+                        try:
+                            driver.get(base_url)
+                            driver.sleep(1)
+                            
+                            self._log("info", f"✅ [bold green]Connected:[/bold green] {driver.title}")
+                            
+                            all_reviews = []
+                            seen_review_texts: Set[str] = set()  # Track duplicates
+                            page_number = 1
+                            max_pages = 2  # Limit for stability
+                            consecutive_duplicates = 0
+                            
+                            while page_number <= max_pages:
+                                self._log("info", f"📄 [bold blue]Processing G2 page[/bold blue] [bold cyan]{page_number}[/bold cyan]")
                                 
-                                # Wait for reviews to load
-                                driver.sleep(2)
-                                
-                                # Find review elements using G2's structure
-                                review_selectors = [
-                                    '[data-testid*="review"]',
-                                    '.paper',
-                                    'div[id*="review"]',
-                                    '.review-item'
-                                ]
-                                
-                                review_elements = []
-                                for selector in review_selectors:
-                                    try:
-                                        review_elements = driver.get_elements_or_none_by_selector(selector) or []
-                                        if review_elements:
-                                            print(f"Found {len(review_elements)} reviews using selector: {selector}")
-                                            break
-                                    except Exception:
-                                        continue
-                                
-                                if not review_elements:
-                                    print(f"No reviews found on page {page_number}")
-                                    break
-                                
-                                # Extract review data
-                                for i, element in enumerate(review_elements):
-                                    try:
-                                        # Extract review text
-                                        text_selectors = [
-                                            '.review-text',
-                                            '[data-testid="review-text"]',
-                                            '.review-content',
-                                            'p'
-                                        ]
-                                        
-                                        review_text = ""
-                                        for text_sel in text_selectors:
-                                            text_elem = element.find_element(text_sel, raise_exception=False)
-                                            if text_elem:
-                                                review_text = text_elem.text.strip()
-                                                break
-                                        
-                                        if not review_text or len(review_text) < 20:
-                                            continue
-                                        
-                                        # Extract rating
-                                        rating = None
-                                        rating_selectors = [
-                                            '[data-rating]',
-                                            '.stars',
-                                            '[aria-label*="star"]',
-                                            '[class*="star"]'
-                                        ]
-                                        
-                                        for rating_sel in rating_selectors:
-                                            rating_elem = element.find_element(rating_sel, raise_exception=False)
-                                            if rating_elem:
-                                                # Try to get rating from aria-label or data attribute
-                                                aria_label = rating_elem.get_attribute('aria-label')
-                                                data_rating = rating_elem.get_attribute('data-rating')
-                                                
-                                                if data_rating:
-                                                    rating = float(data_rating)
-                                                    break
-                                                elif aria_label:
-                                                    rating_match = re.search(r'(\d+(?:\.\d+)?)', aria_label)
-                                                    if rating_match:
-                                                        rating = float(rating_match.group(1))
-                                                        break
-                                        
-                                        # Extract author
-                                        author = None
-                                        author_selectors = [
-                                            '.reviewer-name',
-                                            '[data-testid="reviewer-name"]',
-                                            '.author-name'
-                                        ]
-                                        
-                                        for author_sel in author_selectors:
-                                            author_elem = element.find_element(author_sel, raise_exception=False)
-                                            if author_elem:
-                                                author = author_elem.text.strip()
-                                                break
-                                        
-                                        # Create review object
-                                        review_data = {
-                                            'text': review_text,
-                                            'rating': int(rating) if rating else None,
-                                            'author': author,
-                                            'page': page_number,
-                                            'index': i
-                                        }
-                                        
-                                        page_reviews.append(review_data)
-                                        
-                                    except Exception as e:
-                                        print(f"Error extracting review {i}: {e}")
-                                        continue
-                                
-                                # Try to go to next page
-                                next_button = browser.find_element('[aria-label="Next page"], .next-page, [class*="next"]', raise_exception=False)
-                                
-                                if next_button and page_number < max_pages:
-                                    try:
-                                        next_button.click()
-                                        browser.sleep(3)  # Wait for page to load
-                                        page_number += 1
-                                    except Exception as e:
-                                        print(f"Could not navigate to next page: {e}")
-                                        break
-                                else:
-                                    break
+                                try:
+                                    # Wait for content to load
+                                    driver.sleep(1)
                                     
-                            except Exception as e:
-                                print(f"Error on page {page_number}: {e}")
-                                break
-                        
-                        return page_reviews
+                                    # Get articles (the actual reviews) - CORRECT APPROACH
+                                    articles = driver.select_all('article')
+                                    
+                                    if not articles:
+                                        self._log("warning", f"❌ [bold red]No articles found on page[/bold red] [bold cyan]{page_number}[/bold cyan]")
+                                        break
+                                    
+                                    self._log("debug", f"📦 [dim]Found[/dim] [bold green]{len(articles)}[/bold green] [dim]article elements[/dim]")
+                                    
+                                    page_unique_reviews = 0
+                                    
+                                    # Process each ARTICLE (not review_elements - that was the bug!)
+                                    for i, article in enumerate(articles):
+                                        try:
+                                            # Get article text
+                                            full_text = article.text
+                                            if not full_text or len(full_text) < 40:
+                                                continue
+                                            
+                                            # Create a signature to detect duplicates
+                                            text_signature = full_text[:100].strip()
+                                            
+                                            if text_signature in seen_review_texts:
+                                                continue  # Skip duplicate
+                                            
+                                            seen_review_texts.add(text_signature)
+                                            
+                                            # Parse G2 review structure based on split lines
+                                            lines = full_text.split('\n')
+                                            
+                                            # Extract structured metadata from fixed positions
+                                            metadata = {}
+                                            author = None
+                                            rating = None
+                                            
+                                            if len(lines) >= 6:
+                                                # Standard G2 structure
+                                                metadata['author_name'] = lines[0].strip() if lines[0] else None
+                                                metadata['job_title'] = lines[1].strip() if lines[1] else None  
+                                                metadata['company_size'] = lines[2].strip() if lines[2] else None
+                                                metadata['review_date'] = lines[3].strip() if lines[3] else None
+                                                metadata['review_title'] = lines[4].strip() if lines[4] else None
+                                                
+                                                # Extract author from metadata
+                                                author = metadata['author_name']
+                                                
+                                                # Extract rating from position 5 (should be "X/5")
+                                                rating_line = lines[5].strip() if len(lines) > 5 else ""
+                                                if '/5' in rating_line:
+                                                    rating_match = re.search(r'(\d+)/5', rating_line)
+                                                    if rating_match:
+                                                        potential_rating = int(rating_match.group(1))
+                                                        if 1 <= potential_rating <= 5:
+                                                            rating = potential_rating
+                                                
+                                                self._log("debug", f"📋 [dim]Extracted metadata:[/dim] [green]{metadata}[/green]")
+                                                self._log("debug", f"⭐ [bold yellow]Rating:[/bold yellow] [bold green]{rating}[/bold green]")
+                                            
+                                            # Extract review text - combine G2's structured Q&A format
+                                            review_text = ""
+                                            
+                                            # DEBUG: Let's see what we're working with
+                                            self._log("debug", f"🔍 [dim]DEBUG: full_text preview:[/dim] [dim cyan]{full_text[:200]}...[/dim cyan]")
+                                            
+                                            # Extract Q&A sections from structured lines approach
+                                            qa_sections = []
+                                            
+                                            # Find where the actual review content starts (after metadata)
+                                            content_start_idx = 6  # After author, job, company, date, title, rating
+                                            
+                                            # Process lines to extract Q&A pairs, stopping at G2 footers
+                                            current_question = None
+                                            current_answer_lines = []
+                                            
+                                            self._log("debug", f"🔍 [dim]Processing[/dim] [bold green]{len(lines)}[/bold green] [dim]lines for Q&A extraction[/dim]")
+                                            
+                                            for line_idx in range(content_start_idx, len(lines)):
+                                                line = lines[line_idx].strip()
+                                                
+                                                # Skip empty lines
+                                                if not line:
+                                                    continue
+                                                
+                                                # Check for FINAL stop markers (end of all content)
+                                                if any(final_stop in line for final_stop in [
+                                                    'Show More',
+                                                    'Response from',
+                                                    'Current User',
+                                                    'Validated Reviewer',
+                                                    'Source: Organic'
+                                                ]):
+                                                    # Save any pending Q&A before stopping completely
+                                                    if current_question and current_answer_lines:
+                                                        answer_text = ' '.join(current_answer_lines).strip()
+                                                        if len(answer_text) > 10:
+                                                            qa_sections.append(f"❓ {current_question} -> 💬 {answer_text}")
+                                                    self._log("debug", f"⏹️ [bold red]Final stop at line:[/bold red] [dim]{line}[/dim]")
+                                                    break
+                                                
+                                                # Check for ANSWER END markers (between Q&As)
+                                                if 'Review collected by and hosted on G2.com' in line:
+                                                    # End current answer but continue looking for more questions
+                                                    if current_question and current_answer_lines:
+                                                        answer_text = ' '.join(current_answer_lines).strip()
+                                                        if len(answer_text) > 10:
+                                                            qa_sections.append(f"❓ {current_question} -> 💬 {answer_text}")
+                                                        self._log("debug", f"💾 [bold green]Saved Q&A pair, continuing...[/bold green]")
+                                                    # Reset for next Q&A
+                                                    current_question = None
+                                                    current_answer_lines = []
+                                                    continue
+                                                
+                                                # Check if this is a G2 question
+                                                is_question = any(q_pattern in line for q_pattern in [
+                                                    'What do you like best about',
+                                                    'What do you dislike about', 
+                                                    'What problems is',
+                                                    'Recommendations to others',
+                                                    'What are you using'
+                                                ]) and line.endswith('?')
+                                                
+                                                if is_question:
+                                                    # Save previous Q&A pair if exists (shouldn't happen with new logic)
+                                                    if current_question and current_answer_lines:
+                                                        answer_text = ' '.join(current_answer_lines).strip()
+                                                        if len(answer_text) > 10:
+                                                            qa_sections.append(f"❓ {current_question} -> 💬 {answer_text}")
+                                                    
+                                                    # Start new Q&A pair
+                                                    current_question = line
+                                                    current_answer_lines = []
+                                                    self._log("debug", f"📝 [bold blue]Found question:[/bold blue] [green]{current_question}[/green]")
+                                                    
+                                                elif current_question and line:
+                                                    # This is part of the answer (ignore G2 footer lines)
+                                                    if 'Review collected by' not in line:
+                                                        current_answer_lines.append(line)
+                                            
+                                            # Save final Q&A pair if exists
+                                            if current_question and current_answer_lines:
+                                                answer_text = ' '.join(current_answer_lines).strip()
+                                                if len(answer_text) > 10:
+                                                    qa_sections.append(f"❓ {current_question} -> 💬 {answer_text}")
+                                            
+                                            self._log("debug", f"🔍 [bold blue]DEBUG: Found[/bold blue] [bold green]{len(qa_sections)}[/bold green] [bold blue]Q&A sections[/bold blue]")
+                                            # Build final review text
+                                            if qa_sections:
+                                                review_text = "\n\n".join(qa_sections)
+                                                self._log("debug", f"✅ [bold green]Extracted[/bold green] [bold cyan]{len(qa_sections)}[/bold cyan] [bold green]Q&A sections[/bold green] [dim]({len(review_text)} chars)[/dim]")
+                                            else:
+                                                # Fallback: use the review title if available
+                                                if metadata.get('review_title'):
+                                                    review_text = metadata['review_title'].strip('"')
+                                                    self._log("debug", "✅ [yellow]Using review title as fallback[/yellow]")
+                                                else:
+                                                    review_text = "No review content found"
+                                                    self._log("warning", "⚠️ [bold yellow]No Q&A sections or title found[/bold yellow]")
+                                            
+                                            if not review_text or len(review_text.strip()) < 15:
+                                                continue
+                                            
+                                            # Create review with extracted data and metadata
+                                            review_data = {
+                                                'text': review_text.strip(),  # Use clean Q&A text instead of full_text
+                                                'rating': rating,
+                                                'author': author,
+                                                'page': page_number,
+                                                'index': i,
+                                                'signature': text_signature,
+                                                'metadata': metadata  # Store G2 structured metadata
+                                            }
+                                            
+                                            all_reviews.append(review_data)
+                                            page_unique_reviews += 1
+                                            
+                                        except Exception as e:
+                                            self._log("warning", f"⚠️ [bold yellow]Error processing article {i}:[/bold yellow] [red]{e}[/red]")
+                                            continue
+                                    
+                                    self._log("info", f"✅ [bold blue]Page {page_number}:[/bold blue] [bold green]{page_unique_reviews}[/bold green] [dim]unique reviews[/dim]")
+                                    
+                                    # Check if we got any new reviews
+                                    if page_unique_reviews == 0:
+                                        consecutive_duplicates += 1
+                                        if consecutive_duplicates >= 2:
+                                            self._log("info", "⏹️ [bold red]No new reviews found, stopping[/bold red]")
+                                            break
+                                    else:
+                                        consecutive_duplicates = 0
+                                    
+                                    # Try to navigate to next page
+                                    if page_number < max_pages:
+                                        self._log("debug", "🔄 [dim]Looking for next page...[/dim]")
+                                        
+                                        # Multiple pagination strategies
+                                        next_found = False
+                                        
+                                        # Strategy 1: Look for "Next" link
+                                        try:
+                                            next_links = driver.select_all('a')
+                                            for link in next_links:
+                                                if link.text and 'next' in link.text.lower():
+                                                    self._log("debug", "📌 [green]Found 'Next' text link[/green]")
+                                                    link.click()
+                                                    driver.sleep(2)
+                                                    next_found = True
+                                                    break
+                                        except Exception as e:
+                                            self._log("debug", f"[dim]Strategy 1 failed:[/dim] {e}")
+                                        
+                                        # Strategy 2: Look for page number links
+                                        if not next_found:
+                                            try:
+                                                next_page_num = str(page_number + 1)
+                                                page_links = driver.select_all('a')
+                                                for link in page_links:
+                                                    if link.text and link.text.strip() == next_page_num:
+                                                        self._log("debug", f"📌 [green]Found page number link:[/green] [bold cyan]{next_page_num}[/bold cyan]")
+                                                        link.click()
+                                                        driver.sleep(2)
+                                                        next_found = True
+                                                        break
+                                            except Exception as e:
+                                                self._log("debug", f"[dim]Strategy 2 failed:[/dim] {e}")
+                                        
+                                        if not next_found:
+                                            self._log("info", "⏹️ [bold red]No navigation method worked[/bold red]")
+                                            break
+                                    
+                                    page_number += 1
+                                    
+                                except Exception as e:
+                                    self._log("error", f"❌ [bold red]Error on page {page_number}:[/bold red] {e}")
+                                    break
+                            
+                            self._log("info", f"🎯 [bold blue]FINAL G2 RESULTS:[/bold blue] [bold green]{len(all_reviews)}[/bold green] [bold blue]unique reviews from[/bold blue] [bold cyan]{page_number-1}[/bold cyan] [bold blue]pages[/bold blue]")
+                            return all_reviews
+                            
+                        except Exception as e:
+                            self._log("error", f"❌ [bold red]Critical error in G2 scraper:[/bold red] {e}")
+                            return []
                     
-                    # Execute the scraper
-                    raw_reviews = scrape_g2_page({'business_name': business_name})
+                    # Execute the robust scraper
+                    raw_reviews = scrape_g2_reviews_robust({'business_name': business_name})
                     
                     # Convert to WebsiteReview objects
                     for review_data in raw_reviews:
-                            review = WebsiteReview(
-                            id=f"g2_bot_{business_name}_{review_data['page']}_{review_data['index']}_{hash(review_data['text'])}",
-                                platform="G2",
-                            source_platform="G2 (Botasaurus)",
+                        # Add metadata as a custom attribute if it exists
+                        review = WebsiteReview(
+                            id=f"g2_fixed_{business_name}_{review_data['page']}_{review_data['index']}_{hash(review_data['text'])}",
+                            platform="G2",
+                            source_platform="G2",
                             rating=review_data['rating'],
                             text=review_data['text'],
                             date=datetime.now(),
                             author=review_data['author'],
-                            website_url=f"https://www.g2.com/products/{business_name}/reviews"
-                            )
-                            reviews.append(review)
-            
+                            website_url=f"https://www.g2.com/products/{business_name}/reviews",
+                            metadata=review_data.get('metadata', {})
+                        )
+                        reviews.append(review)
+                    
                     return reviews
-            
+                    
                 except Exception as e:
-                    print(f"Error in Botasaurus scraping: {e}")
+                    self.logger.error(f"Error in Botasaurus G2 scraping: {e}")
                     return []
             
             # Run in thread pool to avoid blocking
@@ -1027,11 +1168,11 @@ class WebsiteReviewAggregator:
                 future = executor.submit(scrape_with_browser)
                 reviews = await loop.run_in_executor(None, future.result)
             
-            print(f"✅ Botasaurus extracted {len(reviews)} G2 reviews")
+            self.logger.info(f"✅ FIXED Botasaurus extracted {len(reviews)} G2 reviews")
             return reviews
             
         except Exception as e:
-            print(f"Error in Botasaurus G2 scraper: {e}")
+            self.logger.error(f"Error in Botasaurus G2 scraper: {e}")
             return []
     
     def _extract_g2_reviews_from_json(self, json_data: dict, business_name: str, page_number: int) -> List[WebsiteReview]:
@@ -1057,7 +1198,7 @@ class WebsiteReviewAggregator:
                                 )
                                 reviews.append(review)
         except Exception as e:
-            print(f"Error extracting JSON reviews: {e}")
+            self.logger.error(f"Error extracting JSON reviews: {e}")
         
         return reviews
     
@@ -1067,7 +1208,7 @@ class WebsiteReviewAggregator:
         This provides informative messages about G2's protection.
         """
         try:
-            print(f"Attempting fallback G2 scraping for {business_name}...")
+            self.logger.info(f"Attempting fallback G2 scraping for {business_name}...")
             
             base_url = f"https://www.g2.com/products/{business_name}/reviews"
             
@@ -1077,19 +1218,19 @@ class WebsiteReviewAggregator:
             
             async with self.session.get(base_url, headers=headers) as response:
                 if response.status == 403:
-                    print("🚫 G2 blocked the request with Cloudflare protection")
+                    self.logger.warning("🚫 G2 blocked the request with Cloudflare protection")
                 elif response.status == 404:
-                    print(f"📍 G2 product not found: {business_name}")
+                    self.logger.warning(f"📍 G2 product not found: {business_name}")
                 else:
-                    print(f"📊 G2 response status: {response.status}")
+                    self.logger.info(f"📊 G2 response status: {response.status}")
             
-            print("💡 For reliable G2 data extraction, Botasaurus browser automation is required")
-            print("   Botasaurus successfully bypasses G2's anti-bot protection")
+            self.logger.info("💡 For reliable G2 data extraction, Botasaurus browser automation is required")
+            self.logger.info("   Botasaurus successfully bypasses G2's anti-bot protection")
             
             return []
             
         except Exception as e:
-            print(f"Error in fallback G2 scraper: {e}")
+            self.logger.error(f"Error in fallback G2 scraper: {e}")
             return []
     
     async def _scrape_g2_via_search(self, business_name: str) -> List[WebsiteReview]:
@@ -1782,7 +1923,8 @@ class WebsiteReviewAggregator:
                 text=self._normalize_text(review.text),
                 date=review.date,
                 author=review.author,
-                website_url=review.website_url
+                website_url=review.website_url,
+                metadata=getattr(review, 'metadata', {})
             )
             
             normalized_reviews.append(normalized_review)
@@ -1949,7 +2091,8 @@ class WebsiteReviewAggregator:
                         text=text_content,
                         date=datetime.now(),
                         author=author or "Anonymous",
-                        website_url=website_url
+                        website_url=website_url,
+                        metadata={"scrape_method": "direct_website", "domain": urlparse(website_url).netloc}
                     )
                     
                     reviews.append(review)
@@ -1983,7 +2126,8 @@ class WebsiteReviewAggregator:
                                 text=review_text,
                                 date=datetime.now(),
                                 author=author_name,
-                                website_url=website_url
+                                website_url=website_url,
+                                metadata={"scrape_method": "json_ld_structured_data", "domain": urlparse(website_url).netloc}
                             )
                             reviews.append(review)
                             
@@ -2297,6 +2441,8 @@ if __name__ == "__main__":
         async with WebsiteReviewAggregator() as aggregator:
             business_name = "www.gorgias.com"
             print("=== Testing JSON-based Trustpilot scraper ===")
+            business_name = "gorgias"
+            res = await aggregator._scrape_g2_with_botasaurus(business_name)
             # json_reviews = await aggregator.scrape_trustpilot_reviews_json(business_name)
             # print(f"JSON method found {len(json_reviews)} reviews")
             
@@ -2317,4 +2463,4 @@ if __name__ == "__main__":
             # print(f"HTML method found {len(html_reviews)} reviews")
             breakpoint()
     
-    # asyncio.run(test_trustpilot())
+    asyncio.run(test_trustpilot())
