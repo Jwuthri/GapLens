@@ -3,7 +3,7 @@
 import asyncio
 import re
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse, urljoin, quote_plus
 import aiohttp
@@ -13,7 +13,21 @@ try:
 except ImportError:
     Adaptor = None
 
-from ..models.schemas import Platform
+try:
+    from botasaurus.browser import browser
+    BOTASAURUS_AVAILABLE = True
+except ImportError:
+    BOTASAURUS_AVAILABLE = False
+    browser = None
+
+try:
+    from ..models.schemas import Platform
+except ImportError:
+    # For running as standalone script
+    import sys
+    import os
+    sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+    from app.models.schemas import Platform
 
 
 class WebsiteReviewAggregationError(Exception):
@@ -140,6 +154,9 @@ class WebsiteReviewAggregator:
         # Social Media
         tasks.append(self.scrape_facebook_reviews(business_info.name))
         tasks.append(self.scrape_twitter_mentions(business_info.name))
+        
+        # General Review Platforms  
+        tasks.append(self.scrape_trustpilot_reviews_json(business_info.name))
         
         # Software Review Platforms
         tasks.append(self.scrape_g2_reviews(business_info.name))
@@ -803,47 +820,330 @@ class WebsiteReviewAggregator:
     # Software Review Platforms
     
     async def scrape_g2_reviews(self, business_name: str) -> List[WebsiteReview]:
-        """Scrape G2 reviews for business software."""
+        """
+        Scrape G2 reviews using Botasaurus framework for anti-bot protection.
+        
+        Args:
+            business_name: The product name or slug (e.g., 'gorgias')
+            
+        Returns:
+            List of WebsiteReview objects with G2 review data
+        """
         try:
-            search_url = f"https://www.g2.com/search?query={quote_plus(business_name)}"
-            soup = await self._scrape_with_scrapling(search_url)
-            
-            if not soup:
-                return []
-            
-            reviews = []
-            # Look for product links
-            product_links = soup.find_all('a', href=re.compile(r'/products/'))
-            
-            for i, link in enumerate(product_links[:3]):  # Limit to first 3 results
-                product_url = urljoin("https://www.g2.com", link.get('href'))
-                reviews_url = f"{product_url}/reviews"
+            if BOTASAURUS_AVAILABLE:
+                print(f"🤖 Using Botasaurus to scrape G2 reviews for {business_name}")
+                return await self._scrape_g2_with_botasaurus(business_name)
+            else:
+                print("⚠️ Botasaurus not available, using fallback method")
+                return await self._scrape_g2_fallback(business_name)
                 
-                review_soup = await self._scrape_with_scrapling(reviews_url)
-                if review_soup:
-                    review_elements = review_soup.find_all('div', class_=re.compile(r'review'))
-                    
-                    for j, review_elem in enumerate(review_elements[:10]):  # Limit reviews per product
-                        rating_elem = review_elem.find('div', class_=re.compile(r'rating|stars'))
-                        text_elem = review_elem.find('div', class_=re.compile(r'review-text|content'))
-                        author_elem = review_elem.find('span', class_=re.compile(r'author|reviewer'))
+        except Exception as e:
+            print(f"Error scraping G2 reviews for {business_name}: {e}")
+            return []
+            
+    async def _scrape_g2_with_botasaurus(self, business_name: str) -> List[WebsiteReview]:
+        """Use Botasaurus to scrape G2 reviews with full browser automation."""
+        try:
+            import asyncio
+            import concurrent.futures
+            
+            # Run Botasaurus in a separate thread since it's synchronous
+            loop = asyncio.get_event_loop()
+            
+            def scrape_with_browser():
+                reviews = []
+                try:
+                    @browser
+                    def scrape_g2_page(driver, data):
+                        business_name = data['business_name']
+                        base_url = f"https://www.g2.com/products/{business_name}/reviews"
                         
-                        if text_elem and text_elem.get_text(strip=True):
+                        print(f"🤖 Botasaurus navigating to: {base_url}")
+                        driver.get(base_url)
+                        
+                        # Wait for page to load
+                        driver.sleep(3)
+                        
+                        # Check if product exists
+                        if "404" in driver.title or "not found" in driver.title.lower():
+                            print(f"G2 product not found: {business_name}")
+                            return []
+                        
+                        print(f"✅ Successfully accessed: {driver.title}")
+                        
+                        page_reviews = []
+                        page_number = 1
+                        max_pages = 3  # Limit pages for efficiency
+                        
+                        while page_number <= max_pages:
+                            try:
+                                print(f"Scraping G2 page {page_number}")
+                                
+                                # Wait for reviews to load
+                                driver.sleep(2)
+                                
+                                # Find review elements using G2's structure
+                                review_selectors = [
+                                    '[data-testid*="review"]',
+                                    '.paper',
+                                    'div[id*="review"]',
+                                    '.review-item'
+                                ]
+                                
+                                review_elements = []
+                                for selector in review_selectors:
+                                    try:
+                                        review_elements = driver.get_elements_or_none_by_selector(selector) or []
+                                        if review_elements:
+                                            print(f"Found {len(review_elements)} reviews using selector: {selector}")
+                                            break
+                                    except Exception:
+                                        continue
+                                
+                                if not review_elements:
+                                    print(f"No reviews found on page {page_number}")
+                                    break
+                                
+                                # Extract review data
+                                for i, element in enumerate(review_elements):
+                                    try:
+                                        # Extract review text
+                                        text_selectors = [
+                                            '.review-text',
+                                            '[data-testid="review-text"]',
+                                            '.review-content',
+                                            'p'
+                                        ]
+                                        
+                                        review_text = ""
+                                        for text_sel in text_selectors:
+                                            text_elem = element.find_element(text_sel, raise_exception=False)
+                                            if text_elem:
+                                                review_text = text_elem.text.strip()
+                                                break
+                                        
+                                        if not review_text or len(review_text) < 20:
+                                            continue
+                                        
+                                        # Extract rating
+                                        rating = None
+                                        rating_selectors = [
+                                            '[data-rating]',
+                                            '.stars',
+                                            '[aria-label*="star"]',
+                                            '[class*="star"]'
+                                        ]
+                                        
+                                        for rating_sel in rating_selectors:
+                                            rating_elem = element.find_element(rating_sel, raise_exception=False)
+                                            if rating_elem:
+                                                # Try to get rating from aria-label or data attribute
+                                                aria_label = rating_elem.get_attribute('aria-label')
+                                                data_rating = rating_elem.get_attribute('data-rating')
+                                                
+                                                if data_rating:
+                                                    rating = float(data_rating)
+                                                    break
+                                                elif aria_label:
+                                                    rating_match = re.search(r'(\d+(?:\.\d+)?)', aria_label)
+                                                    if rating_match:
+                                                        rating = float(rating_match.group(1))
+                                                        break
+                                        
+                                        # Extract author
+                                        author = None
+                                        author_selectors = [
+                                            '.reviewer-name',
+                                            '[data-testid="reviewer-name"]',
+                                            '.author-name'
+                                        ]
+                                        
+                                        for author_sel in author_selectors:
+                                            author_elem = element.find_element(author_sel, raise_exception=False)
+                                            if author_elem:
+                                                author = author_elem.text.strip()
+                                                break
+                                        
+                                        # Create review object
+                                        review_data = {
+                                            'text': review_text,
+                                            'rating': int(rating) if rating else None,
+                                            'author': author,
+                                            'page': page_number,
+                                            'index': i
+                                        }
+                                        
+                                        page_reviews.append(review_data)
+                                        
+                                    except Exception as e:
+                                        print(f"Error extracting review {i}: {e}")
+                                        continue
+                                
+                                # Try to go to next page
+                                next_button = browser.find_element('[aria-label="Next page"], .next-page, [class*="next"]', raise_exception=False)
+                                
+                                if next_button and page_number < max_pages:
+                                    try:
+                                        next_button.click()
+                                        browser.sleep(3)  # Wait for page to load
+                                        page_number += 1
+                                    except Exception as e:
+                                        print(f"Could not navigate to next page: {e}")
+                                        break
+                                else:
+                                    break
+                                    
+                            except Exception as e:
+                                print(f"Error on page {page_number}: {e}")
+                                break
+                        
+                        return page_reviews
+                    
+                    # Execute the scraper
+                    raw_reviews = scrape_g2_page({'business_name': business_name})
+                    
+                    # Convert to WebsiteReview objects
+                    for review_data in raw_reviews:
                             review = WebsiteReview(
-                                id=f"g2_{i}_{j}",
+                            id=f"g2_bot_{business_name}_{review_data['page']}_{review_data['index']}_{hash(review_data['text'])}",
                                 platform="G2",
-                                source_platform="G2",
-                                rating=self._extract_rating_from_element(rating_elem),
-                                text=text_elem.get_text(strip=True),
-                                date=datetime.now(),  # G2 dates are complex to parse
-                                author=author_elem.get_text(strip=True) if author_elem else None
+                            source_platform="G2 (Botasaurus)",
+                            rating=review_data['rating'],
+                            text=review_data['text'],
+                            date=datetime.now(),
+                            author=review_data['author'],
+                            website_url=f"https://www.g2.com/products/{business_name}/reviews"
                             )
                             reviews.append(review)
             
+                    return reviews
+            
+                except Exception as e:
+                    print(f"Error in Botasaurus scraping: {e}")
+                    return []
+            
+            # Run in thread pool to avoid blocking
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(scrape_with_browser)
+                reviews = await loop.run_in_executor(None, future.result)
+            
+            print(f"✅ Botasaurus extracted {len(reviews)} G2 reviews")
             return reviews
             
         except Exception as e:
-            print(f"Error scraping G2 reviews for {business_name}: {e}")
+            print(f"Error in Botasaurus G2 scraper: {e}")
+            return []
+    
+    def _extract_g2_reviews_from_json(self, json_data: dict, business_name: str, page_number: int) -> List[WebsiteReview]:
+        """Extract reviews from G2's JSON data if available."""
+        reviews = []
+        try:
+            # G2 might embed review data in JSON - this is a fallback method
+            # Look for review-like structures in the JSON
+            if isinstance(json_data, dict):
+                for key, value in json_data.items():
+                    if 'review' in key.lower() and isinstance(value, list):
+                        for i, review_data in enumerate(value):
+                            if isinstance(review_data, dict) and 'text' in review_data:
+                                review = WebsiteReview(
+                                    id=f"g2_json_{business_name}_{page_number}_{i}",
+                                    platform="G2",
+                                    source_platform="G2 (JSON)",
+                                    rating=review_data.get('rating'),
+                                    text=review_data.get('text', ''),
+                                    date=datetime.now(),
+                                    author=review_data.get('author'),
+                                    website_url=f"https://www.g2.com/products/{business_name}/reviews"
+                                )
+                                reviews.append(review)
+        except Exception as e:
+            print(f"Error extracting JSON reviews: {e}")
+        
+        return reviews
+    
+    async def _scrape_g2_fallback(self, business_name: str) -> List[WebsiteReview]:
+        """
+        Fallback G2 scraping method when Botasaurus is not available.
+        This provides informative messages about G2's protection.
+        """
+        try:
+            print(f"Attempting fallback G2 scraping for {business_name}...")
+            
+            base_url = f"https://www.g2.com/products/{business_name}/reviews"
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            
+            async with self.session.get(base_url, headers=headers) as response:
+                if response.status == 403:
+                    print("🚫 G2 blocked the request with Cloudflare protection")
+                elif response.status == 404:
+                    print(f"📍 G2 product not found: {business_name}")
+                else:
+                    print(f"📊 G2 response status: {response.status}")
+            
+            print("💡 For reliable G2 data extraction, Botasaurus browser automation is required")
+            print("   Botasaurus successfully bypasses G2's anti-bot protection")
+            
+            return []
+            
+        except Exception as e:
+            print(f"Error in fallback G2 scraper: {e}")
+            return []
+    
+    async def _scrape_g2_via_search(self, business_name: str) -> List[WebsiteReview]:
+        """
+        Alternative G2 scraping method using search when direct access fails.
+        This is a fallback when Cloudflare blocks direct product page access.
+        """
+        try:
+            print(f"Trying G2 search approach for {business_name}...")
+            
+            # Use Google search to find G2 product pages (bypasses G2's protection)
+            search_query = f"site:g2.com/products {business_name} reviews"
+            google_url = f"https://www.google.com/search?q={quote_plus(search_query)}"
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            
+            async with self.session.get(google_url, headers=headers) as response:
+                if response.status != 200:
+                    print(f"Google search failed with status {response.status}")
+                    return []
+                
+                html = await response.text()
+                soup = BeautifulSoup(html, 'html.parser')
+                
+                # Find G2 product links in search results
+                g2_links = []
+                for link in soup.find_all('a', href=True):
+                    href = link.get('href')
+                    if href and 'g2.com/products/' in href and '/reviews' not in href:
+                        # Clean up Google's redirect URL
+                        if href.startswith('/url?q='):
+                            href = href.split('&')[0].replace('/url?q=', '')
+                        if href.startswith('http') and 'g2.com/products/' in href:
+                            review_url = href + '/reviews' if not href.endswith('/reviews') else href
+                            g2_links.append(review_url)
+                            break  # Just take the first result
+                
+                if not g2_links:
+                    print(f"No G2 product pages found for {business_name}")
+                    return []
+                
+                print(f"Found G2 URL: {g2_links[0]}")
+                
+                # For now, return empty list since we can't bypass Cloudflare without more advanced tools
+                # In a production environment, this would need a tool like Selenium, Playwright, or Botasaurus
+                print("💡 G2 SOLUTION: Use omkarcloud/g2-scraper with Botasaurus for reliable G2 data extraction")
+                print(f"   GitHub: https://github.com/omkarcloud/g2-scraper")
+                print(f"   RapidAPI: Available for commercial use")
+                return []
+                
+        except Exception as e:
+            print(f"Error in G2 search fallback: {e}")
             return []
     
     async def scrape_capterra_reviews(self, business_name: str) -> List[WebsiteReview]:
@@ -1695,3 +1995,326 @@ class WebsiteReviewAggregator:
         except Exception as e:
             print(f"Error scraping website testimonials from {website_url}: {e}")
             return []
+    
+    async def scrape_trustpilot_reviews(self, business_name: str) -> List[WebsiteReview]:
+        """Scrape Trustpilot reviews for a business."""
+        try:
+            search_url = f"https://www.trustpilot.com/search?query={quote_plus(business_name)}"
+            # Use regular scraping for now as it works better for Trustpilot
+            soup = await self._scrape_regular(search_url)
+            
+            if not soup:
+                return []
+            
+            reviews = []
+            business_links = soup.find_all('a', href=re.compile(r'/review/'))
+            
+            for i, link in enumerate(business_links[:3]):  # Limit to first 3 results
+                href = link.get('href')
+                if not href.startswith('http'):
+                    business_url = urljoin("https://www.trustpilot.com", href)
+                else:
+                    business_url = href
+                
+                review_soup = await self._scrape_regular(business_url)
+                if review_soup:
+                    # Trustpilot uses article elements for reviews
+                    review_elements = review_soup.find_all('article', class_=re.compile(r'reviewCard', re.I))
+                    
+                    if not review_elements:
+                        # Fallback to any article elements
+                        review_elements = review_soup.find_all('article')
+                    
+                    for j, review_elem in enumerate(review_elements[:10]):  # Limit reviews per business
+                        try:
+                            # Extract rating from data-service-review-rating attribute
+                            rating_elem = review_elem.find('div', attrs={'data-service-review-rating': True})
+                            rating = None
+                            
+                            if rating_elem:
+                                rating_attr = rating_elem.get('data-service-review-rating')
+                                if rating_attr and rating_attr.isdigit():
+                                    rating = int(rating_attr)
+                            
+                            # Alternative: extract from star image alt text
+                            if not rating:
+                                star_img = review_elem.find('img', alt=re.compile(r'Rated \d+ out of 5 stars'))
+                                if star_img:
+                                    alt_text = star_img.get('alt', '')
+                                    rating_match = re.search(r'Rated (\d+) out of 5 stars', alt_text)
+                                    if rating_match:
+                                        rating = int(rating_match.group(1))
+                            
+                            # Extract review text using the correct selector
+                            text_elem = review_elem.find('p', attrs={'data-service-review-text-typography': True})
+                            
+                            if not text_elem:
+                                continue
+                            
+                            review_text = text_elem.get_text(strip=True)
+                            if len(review_text) < 10:  # Skip very short reviews
+                                continue
+                            
+                            # Extract author name - look for consumer information
+                            author_elem = review_elem.find('span', class_=re.compile(r'consumer|author', re.I))
+                            if not author_elem:
+                                # Try to find name in the beginning of review card
+                                name_elements = review_elem.find_all('span')
+                                for elem in name_elements:
+                                    text = elem.get_text(strip=True)
+                                    # Simple heuristic: names are usually short and don't contain common review words
+                                    if 2 <= len(text.split()) <= 3 and not any(word in text.lower() for word in ['days', 'ago', 'star', 'review', 'experience']):
+                                        author_elem = elem
+                                        break
+                            
+                            author = author_elem.get_text(strip=True) if author_elem else None
+                            
+                            # Extract date - look for relative dates like "3 days ago"
+                            date_elem = review_elem.find('time')
+                            if not date_elem:
+                                # Look for text that contains "ago"
+                                date_text_elem = review_elem.find(string=re.compile(r'\d+\s+(day|week|month|year)s?\s+ago'))
+                                if date_text_elem:
+                                    date_elem = date_text_elem.parent
+                            
+                            review_date = datetime.now()  # Default to now
+                            if date_elem:
+                                date_str = date_elem.get('datetime') if hasattr(date_elem, 'get') else str(date_elem)
+                                if not date_str and hasattr(date_elem, 'get_text'):
+                                    date_str = date_elem.get_text(strip=True)
+                                
+                                try:
+                                    # Handle relative dates like "3 days ago"
+                                    if 'ago' in date_str.lower():
+                                        if 'day' in date_str.lower():
+                                            days_match = re.search(r'(\d+)\s+days?\s+ago', date_str.lower())
+                                            if days_match:
+                                                days = int(days_match.group(1))
+                                                review_date = datetime.now() - timedelta(days=days)
+                                        elif 'week' in date_str.lower():
+                                            weeks_match = re.search(r'(\d+)\s+weeks?\s+ago', date_str.lower())
+                                            if weeks_match:
+                                                weeks = int(weeks_match.group(1))
+                                                review_date = datetime.now() - timedelta(weeks=weeks)
+                                        elif 'month' in date_str.lower():
+                                            months_match = re.search(r'(\d+)\s+months?\s+ago', date_str.lower())
+                                            if months_match:
+                                                months = int(months_match.group(1))
+                                                review_date = datetime.now() - timedelta(days=months * 30)
+                                except Exception:
+                                    pass
+                            
+                            review = WebsiteReview(
+                                id=f"trustpilot_{i}_{j}_{hash(review_text)}",
+                                platform="TRUSTPILOT",
+                                source_platform="Trustpilot",
+                                rating=rating,
+                                text=review_text,
+                                date=review_date,
+                                author=author,
+                                website_url=business_url
+                            )
+                            reviews.append(review)
+                            
+                        except Exception as e:
+                            print(f"Error parsing Trustpilot review {j}: {e}")
+                            continue
+            
+            return reviews
+            
+        except Exception as e:
+            print(f"Error scraping Trustpilot reviews for {business_name}: {e}")
+            return []
+    
+    async def scrape_trustpilot_reviews_json(self, business_name: str) -> List[WebsiteReview]:
+        """
+        Scrape Trustpilot reviews using the JSON data from __NEXT_DATA__ script tag.
+        This is the main Trustpilot scraper - more reliable than HTML parsing as it uses structured data.
+        
+        Args:
+            business_name: The business domain (e.g., 'www.gorgias.com')
+            
+        Returns:
+            List of WebsiteReview objects with structured data
+        """
+        try:
+            base_url = f"https://www.trustpilot.com/review/{business_name}"
+            print(f"Scraping Trustpilot reviews from: {base_url}")
+            
+            reviews = []
+            page_number = 1
+            
+            while True:
+                page_url = f"{base_url}?page={page_number}"
+                
+                try:
+                    # Make HTTP request with proper headers
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Accept-Encoding': 'gzip, deflate',
+                        'Connection': 'keep-alive',
+                    }
+                    
+                    async with self.session.get(page_url, headers=headers, timeout=15) as response:
+                        if response.status != 200:
+                            print(f"HTTP {response.status} for page {page_number}")
+                            break
+                        
+                        html_content = await response.text()
+                    
+                    # Parse HTML to find the __NEXT_DATA__ script tag
+                    soup = BeautifulSoup(html_content, 'html.parser')
+                    script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
+                    
+                    if not script_tag or not script_tag.string:
+                        print(f"No __NEXT_DATA__ found on page {page_number}")
+                        break
+                    
+                    # Parse the JSON data
+                    try:
+                        json_data = json.loads(script_tag.string)
+                        page_reviews = json_data.get("props", {}).get("pageProps", {}).get("reviews", [])
+                    except json.JSONDecodeError as e:
+                        print(f"Failed to parse JSON data on page {page_number}: {e}")
+                        break
+                    
+                    if not page_reviews:
+                        print(f"No more reviews found on page {page_number}")
+                        break
+                    
+                    # Process each review
+                    for i, review_data in enumerate(page_reviews):
+                        try:
+                            # Extract review date
+                            review_date = datetime.now()  # Default
+                            if "dates" in review_data and "publishedDate" in review_data["dates"]:
+                                try:
+                                    # Parse ISO date format
+                                    date_str = review_data["dates"]["publishedDate"]
+                                    review_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                                except (ValueError, TypeError):
+                                    pass
+                            
+                            # Extract author
+                            author = None
+                            if "consumer" in review_data and "displayName" in review_data["consumer"]:
+                                author = review_data["consumer"]["displayName"]
+                            
+                            # Extract review text (combine title and body)
+                            review_text = ""
+                            if "title" in review_data and review_data["title"]:
+                                review_text += review_data["title"]
+                            
+                            if "text" in review_data and review_data["text"]:
+                                if review_text:
+                                    review_text += "\n\n" + review_data["text"]
+                                else:
+                                    review_text = review_data["text"]
+                            
+                            if len(review_text.strip()) < 10:  # Skip very short reviews
+                                continue
+                            
+                            # Extract rating
+                            rating = None
+                            if "rating" in review_data:
+                                try:
+                                    rating = int(review_data["rating"])
+                                    if not (1 <= rating <= 5):
+                                        rating = None
+                                except (ValueError, TypeError):
+                                    pass
+                            
+                            # Create the review object
+                            review = WebsiteReview(
+                                id=f"trustpilot_json_{business_name}_{page_number}_{i}_{hash(review_text)}",
+                                platform="TRUSTPILOT",
+                                source_platform="Trustpilot (JSON)",
+                                rating=rating,
+                                text=review_text.strip(),
+                                date=review_date,
+                                author=author,
+                                website_url=page_url
+                            )
+                            
+                            reviews.append(review)
+                            
+                        except Exception as e:
+                            print(f"Error processing review {i} on page {page_number}: {e}")
+                            continue
+                    
+                    print(f"Extracted {len(page_reviews)} reviews from page {page_number}")
+                    page_number += 1
+                    
+                    # Add delay to be respectful
+                    await asyncio.sleep(2)
+                    
+                    # Limit to reasonable number of pages to avoid being too aggressive
+                    if page_number > 50:  # Limit to 50 pages max (1000+ reviews)
+                        break
+                        
+                except Exception as e:
+                    print(f"Error fetching page {page_number}: {e}")
+                    break
+            
+            # Remove duplicates based on review text
+            unique_reviews = []
+            seen_texts = set()
+            
+            for review in reviews:
+                if review.text not in seen_texts:
+                    unique_reviews.append(review)
+                    seen_texts.add(review.text)
+            
+            print(f"Successfully extracted {len(unique_reviews)} unique reviews from Trustpilot JSON data")
+            return unique_reviews
+            
+        except Exception as e:
+            print(f"Error using Trustpilot JSON scraper for {business_name}: {e}")
+            print("Falling back to HTML scraper...")
+            return await self.scrape_trustpilot_reviews(business_name)
+    
+    async def scrape_trustpilot_reviews_enhanced(self, business_name: str) -> List[WebsiteReview]:
+        """
+        Enhanced Trustpilot scraper that tries JSON scraping first, then falls back to HTML scraper.
+        """
+        # Try the JSON-based scraper first (more reliable)
+        json_reviews = await self.scrape_trustpilot_reviews_json(business_name)
+        
+        if json_reviews:
+            return json_reviews
+        
+        # Fall back to HTML scraper if JSON method doesn't work
+        print("JSON scraper failed, trying HTML scraper...")
+        html_reviews = await self.scrape_trustpilot_reviews(business_name)
+        
+        return html_reviews
+
+
+if __name__ == "__main__":
+    async def test_trustpilot():
+        async with WebsiteReviewAggregator() as aggregator:
+            business_name = "www.gorgias.com"
+            print("=== Testing JSON-based Trustpilot scraper ===")
+            # json_reviews = await aggregator.scrape_trustpilot_reviews_json(business_name)
+            # print(f"JSON method found {len(json_reviews)} reviews")
+            
+            # if json_reviews:
+            #     print("Sample review from JSON:")
+            #     sample = json_reviews[0]
+            #     print(f"  Rating: {sample.rating}/5")
+            #     print(f"  Author: {sample.author}")
+            #     print(f"  Text: {sample.text[:100]}...")
+            #     print(f"  Date: {sample.date}")
+            
+            # print("\n=== Testing Enhanced Trustpilot scraper (JSON + HTML fallback) ===")
+            # enhanced_reviews = await aggregator.scrape_trustpilot_reviews_enhanced(business_name)
+            # print(f"Enhanced method found {len(enhanced_reviews)} reviews")
+
+            # print("\n=== Testing HTML Trustpilot scraper ===")
+            # html_reviews = await aggregator.scrape_trustpilot_reviews(business_name)
+            # print(f"HTML method found {len(html_reviews)} reviews")
+            breakpoint()
+    
+    # asyncio.run(test_trustpilot())

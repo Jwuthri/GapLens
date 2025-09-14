@@ -132,6 +132,7 @@ class Platform(str, Enum):
     YELP = "yelp"
     FACEBOOK = "facebook"
     TWITTER = "twitter"
+    TRUSTPILOT = "trustpilot"
 
 
 class AnalysisStatus(str, Enum):
