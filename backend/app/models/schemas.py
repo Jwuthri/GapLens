@@ -53,10 +53,10 @@ class AppIdentifier(BaseModel):
 
 class AnalysisStatus(str, Enum):
     """Analysis processing status."""
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 # Base schemas
@@ -71,7 +71,7 @@ class ReviewBase(BaseModel):
     review_date: datetime
     locale: Optional[str] = Field(None, max_length=10)
     author: Optional[str] = Field(None, max_length=255, description="Review author name")
-    metadata: Optional[dict] = Field(None, description="Platform-specific metadata as JSON")
+    meta: Optional[dict] = Field(None, description="Platform-specific metadata as JSON")
 
 
 class ReviewCreate(ReviewBase):

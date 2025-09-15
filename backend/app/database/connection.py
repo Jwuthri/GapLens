@@ -9,7 +9,7 @@ from sqlalchemy.pool import QueuePool
 from sqlalchemy.engine import Engine
 
 # Database URL from environment variable
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/review_gap_analyzer")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/review_gap_analyzer")
 
 # Connection pool configuration
 POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
@@ -38,22 +38,18 @@ engine = create_engine(
     connect_args={
         "connect_timeout": 10,
         "application_name": "review_gap_analyzer",
-        # PostgreSQL-specific optimizations
-        "options": "-c default_transaction_isolation='read committed'"
     }
 )
 
 # Add connection event listeners for monitoring
 @event.listens_for(engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
+def set_postgresql_settings(dbapi_connection, connection_record):
     """Set connection-level optimizations."""
     if "postgresql" in DATABASE_URL:
-        # PostgreSQL optimizations
+        # PostgreSQL optimizations - only connection-level settings
         with dbapi_connection.cursor() as cursor:
             # Set connection-level settings for better performance
             cursor.execute("SET synchronous_commit = off")  # Faster writes, slight durability trade-off
-            cursor.execute("SET wal_buffers = '16MB'")
-            cursor.execute("SET checkpoint_completion_target = 0.9")
 
 @event.listens_for(engine, "checkout")
 def receive_checkout(dbapi_connection, connection_record, connection_proxy):

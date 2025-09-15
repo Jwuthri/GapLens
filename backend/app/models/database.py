@@ -137,10 +137,10 @@ class Platform(str, Enum):
 
 class AnalysisStatus(str, Enum):
     """Analysis processing status."""
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class Review(Base):
@@ -158,7 +158,7 @@ class Review(Base):
     review_date = Column(DateTime, nullable=False)
     locale = Column(String, nullable=True)
     author = Column(String, nullable=True)  # Review author name
-    metadata = Column(JSON, nullable=True)  # Platform-specific metadata as JSON
+    meta = Column(JSON, nullable=True)  # Platform-specific metadata as JSON
     processed = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=func.now(), nullable=False)
     
