@@ -15,10 +15,6 @@ from rich.console import Console
 from rich.text import Text
 from rich.logging import RichHandler
 
-logging.basicConfig(
-    level="NOTSET", format="%(message)s", datefmt="[%X]", handlers=[RichHandler()]
-)
-
 try:
     from ..models.schemas import Platform
 except ImportError:
@@ -28,6 +24,31 @@ except ImportError:
     sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
     from app.models.schemas import Platform
 
+# Configure rich console and logging
+console = Console()
+
+# Set up proper logging with Rich
+logging.basicConfig(
+    level=logging.INFO,  # Use proper logging level
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[
+        RichHandler(
+            console=console,
+            show_time=True,
+            show_path=False,
+            rich_tracebacks=True,
+            markup=True,  # Enable Rich markup parsing
+            show_level=False,  # Don't show level prefix to clean up output
+            omit_repeated_times=False
+        )
+    ],
+    force=True  # Force reconfiguration
+)
+
+logger = logging.getLogger(__name__)
+# Set the logger level explicitly
+logger.setLevel(logging.INFO)
 
 class WebsiteReviewAggregationError(Exception):
     """Exception raised when website review aggregation fails."""
@@ -78,11 +99,16 @@ class WebsiteReviewAggregator:
         self.yelp_api_key: Optional[str] = None
         self.facebook_access_token: Optional[str] = None
         self.twitter_bearer_token: Optional[str] = None
-        self.logger = logging.getLogger(__name__)
     
     def _log(self, level: str, message: str, style: str = ""):
-        """Unified logging method that uses Rich if available, else falls back to standard logging."""
-        getattr(self.logger, level)(message)
+        """Unified logging method that uses Rich with proper markup handling."""
+        try:
+            # Use the logger with Rich markup support - Rich markup should be processed automatically
+            log_func = getattr(logger, level.lower())
+            log_func(message)
+        except AttributeError:
+            # Fallback for invalid log levels
+            logger.info(message)
     
     async def __aenter__(self):
         """Async context manager entry."""
@@ -445,7 +471,7 @@ class WebsiteReviewAggregator:
             return await self._get_google_place_reviews(place_id)
 
         except Exception as e:
-            self.logger.error(f"Error scraping Google Reviews for {business_name}: {e}")
+            self._log("error", f"[bold red]Error scraping Google Reviews for[/bold red] [dim]{business_name}[/dim]: {e}")
             return []
     
     async def scrape_google_reviews_web(self, business_name: str) -> List[WebsiteReview]:
@@ -489,12 +515,12 @@ class WebsiteReviewAggregator:
                     
                     return reviews
             except Exception as e:
-                self.logger.error(f"Error scraping Google Reviews: {e}")
+                logger.error(f"Error scraping Google Reviews: {e}")
             
             return []
             
         except Exception as e:
-            self.logger.error(f"Error web scraping Google Reviews for {business_name}: {e}")
+            logger.error(f"Error web scraping Google Reviews for {business_name}: {e}")
             return []
     
     async def _find_google_place_id(self, business_name: str, address: Optional[str] = None) -> Optional[str]:
@@ -525,7 +551,7 @@ class WebsiteReviewAggregator:
             return None
             
         except Exception as e:
-            self.logger.error(f"Error finding Google Place ID: {e}")
+            logger.error(f"Error finding Google Place ID: {e}")
             return None
     
     async def _get_google_place_reviews(self, place_id: str) -> List[WebsiteReview]:
@@ -572,7 +598,7 @@ class WebsiteReviewAggregator:
             return []
             
         except Exception as e:
-            self.logger.error(f"Error getting Google Place reviews: {e}")
+            logger.error(f"Error getting Google Place reviews: {e}")
             return []
     
     async def scrape_yelp_reviews_api(self, business_name: str, address: Optional[str] = None) -> List[WebsiteReview]:
@@ -599,7 +625,7 @@ class WebsiteReviewAggregator:
             return await self._get_yelp_business_reviews(business_id)
             
         except Exception as e:
-            print(f"Error scraping Yelp reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping Yelp reviews for {business_name}: {e}")
             return []
     
     async def scrape_yelp_reviews_web(self, business_name: str) -> List[WebsiteReview]:
@@ -645,7 +671,7 @@ class WebsiteReviewAggregator:
             return []
             
         except Exception as e:
-            print(f"Error web scraping Yelp reviews for {business_name}: {e}")
+            self._log("info", f"Error web scraping Yelp reviews for {business_name}: {e}")
             return []
     
     async def _find_yelp_business_id(self, business_name: str, address: Optional[str] = None) -> Optional[str]:
@@ -677,7 +703,7 @@ class WebsiteReviewAggregator:
             return None
             
         except Exception as e:
-            print(f"Error finding Yelp business ID: {e}")
+            self._log("info", f"Error finding Yelp business ID: {e}")
             return None
     
     async def _get_yelp_business_reviews(self, business_id: str) -> List[WebsiteReview]:
@@ -721,7 +747,7 @@ class WebsiteReviewAggregator:
             return []
             
         except Exception as e:
-            print(f"Error getting Yelp business reviews: {e}")
+            self._log("info", f"Error getting Yelp business reviews: {e}")
             return []
     
     async def scrape_facebook_reviews(self, business_name: str) -> List[WebsiteReview]:
@@ -743,16 +769,16 @@ class WebsiteReviewAggregator:
                 
                 # Note: Facebook blocks most scraping attempts
                 # This is a placeholder implementation
-                print(f"Facebook scraping attempted for {business_name} (limited by platform restrictions)")
+                self._log("info", f"Facebook scraping attempted for {business_name} (limited by platform restrictions)")
                 return []
                 
             except Exception as e:
-                print(f"Error scraping Facebook: {e}")
+                self._log("info", f"Error scraping Facebook: {e}")
             
             return []
             
         except Exception as e:
-            print(f"Error scraping Facebook reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping Facebook reviews for {business_name}: {e}")
             return []
     
     async def scrape_twitter_mentions(self, business_name: str) -> List[WebsiteReview]:
@@ -773,19 +799,19 @@ class WebsiteReviewAggregator:
                 # This is a placeholder implementation
                 search_url = f"https://twitter.com/search?q={business_name.replace(' ', '%20')}"
                 
-                print(f"Twitter scraping attempted for {business_name} (requires API access for full functionality)")
+                self._log("info", f"Twitter scraping attempted for {business_name} (requires API access for full functionality)")
                 
                 # Without API access, web scraping Twitter is very limited
                 # and often blocked. Return empty for now.
                 return []
                 
             except Exception as e:
-                print(f"Error scraping Twitter: {e}")
+                self._log("info", f"Error scraping Twitter: {e}")
             
             return []
             
         except Exception as e:
-            print(f"Error scraping Twitter mentions for {business_name}: {e}")
+            self._log("info", f"Error scraping Twitter mentions for {business_name}: {e}")
             return []
     
     async def _get_scrapling_adaptor(self) -> Optional[object]:
@@ -809,7 +835,7 @@ class WebsiteReviewAggregator:
             elif response and hasattr(response, 'status_code') and response.status_code == 200:
                 return BeautifulSoup(response.text, 'html.parser')
         except Exception as e:
-            print(f"Error scraping with Scrapling: {e}")
+            self._log("info", f"Error scraping with Scrapling: {e}")
             # Fallback to regular scraping
             return await self._scrape_regular(url, headers)
         
@@ -832,7 +858,7 @@ class WebsiteReviewAggregator:
                     html = await response.text()
                     return BeautifulSoup(html, 'html.parser')
         except Exception as e:
-            print(f"Error in regular scraping: {e}")
+            self._log("info", f"Error in regular scraping: {e}")
         
         return None
     
@@ -849,12 +875,77 @@ class WebsiteReviewAggregator:
             List of WebsiteReview objects with G2 review data
         """
         try:
-            self._log("info", f"🤖 [bold blue]Using Botasaurus to scrape G2 reviews for[/bold blue] [bold green]{business_name}[/bold green]")
+            self._log("info", f"🤖 [bold blue]Using Botasaurus browser for[/bold blue] [bold green]{business_name}[/bold green]")
             return await self._scrape_g2_with_botasaurus(business_name)
 
         except Exception as e:
             self._log("error", f"[bold red]Error scraping G2 reviews for[/bold red] [bold green]{business_name}[/bold green]: {e}")
             return []
+
+    def _parse_g2_article_text(self, lines: list, index: int, page: int) -> dict:
+        """Parse G2 article text lines into structured review data."""
+        try:
+            import re
+            
+            metadata = {}
+            author = None
+            rating = None
+            
+            if len(lines) >= 6:
+                # Standard G2 structure
+                metadata['author_name'] = lines[0].strip() if lines[0] else None
+                metadata['job_title'] = lines[1].strip() if lines[1] else None
+                metadata['company_size'] = lines[2].strip() if lines[2] else None
+                metadata['review_date'] = lines[3].strip() if lines[3] else None
+                metadata['review_title'] = lines[4].strip() if lines[4] else None
+                
+                # Extract author
+                author = metadata['author_name']
+                
+                # Extract rating from position 5 (should be "X/5")
+                rating_line = lines[5].strip() if len(lines) > 5 else ""
+                if '/5' in rating_line:
+                    rating_match = re.search(r'(\d+)/5', rating_line)
+                    if rating_match:
+                        potential_rating = int(rating_match.group(1))
+                        if 1 <= potential_rating <= 5:
+                            rating = potential_rating
+            
+            # Extract review text - combine remaining lines
+            review_text = ""
+            if len(lines) > 6:
+                # Skip metadata lines, combine the rest
+                text_lines = lines[6:]
+                
+                # Filter out common G2 UI elements
+                filtered_lines = []
+                skip_phrases = ['verified user', 'helpful', 'report', 'read more', 'show more', 'less helpful']
+                
+                for line in text_lines:
+                    line = line.strip()
+                    if line and len(line) > 3:
+                        # Skip UI elements
+                        if not any(skip in line.lower() for skip in skip_phrases):
+                            filtered_lines.append(line)
+                
+                review_text = ' '.join(filtered_lines)
+            
+            # Minimum review text length
+            if not review_text or len(review_text) < 20:
+                return None
+            
+            return {
+                'index': index,
+                'page': page,
+                'author': author,
+                'rating': rating,
+                'text': review_text[:1500],  # Limit text length
+                'metadata': metadata
+            }
+            
+        except Exception as e:
+            self._log("debug", f"[dim]Error parsing G2 article text:[/dim] {e}")
+            return None
             
     async def _scrape_g2_with_botasaurus(self, business_name: str) -> List[WebsiteReview]:
         """Use Botasaurus to scrape G2 reviews with full browser automation. FIXED VERSION."""
@@ -863,6 +954,45 @@ class WebsiteReviewAggregator:
             import concurrent.futures
             import re
             from typing import Set
+            import os
+            
+            # Import Botasaurus stealth features
+            import botasaurus as bt
+            from botasaurus_driver.user_agent import UserAgent
+            from botasaurus_driver.window_size import WindowSize
+
+            # Configure browser executable based on architecture
+            chrome_executable = os.environ.get('CHROME_EXECUTABLE')
+            if chrome_executable and os.path.exists(chrome_executable):
+                os.environ['BOTASAURUS_BROWSER_PATH'] = chrome_executable
+            
+            # 🖥️ SERVER MODE CONFIGURATION FOR G2
+            # 
+            # USAGE:
+            # 🖥️ LOCAL DEV:     No env vars needed - uses real display
+            # 🐳 SERVER/CLOUD:  export SERVER_MODE=true - uses virtual display (Xvfb)
+            #
+            # This allows "visible" browsers on headless servers (best for G2!)
+            is_server = os.environ.get('SERVER_MODE', 'false').lower() == 'true'
+            display = os.environ.get('DISPLAY', ':0')
+            
+            if is_server:
+                self._log("info", f"🖥️ [bold blue]Server Mode:[/bold blue] [bold green]Enabled[/bold green] [dim](Virtual Display + Visible Browser)[/dim]")
+                self._log("info", f"📺 [dim]Display:[/dim] [cyan]{display}[/cyan]")
+                
+                # Check if virtual display is available
+                try:
+                    import subprocess
+                    result = subprocess.run(['xdpyinfo', '-display', display], 
+                                          capture_output=True, text=True, timeout=5)
+                    if result.returncode == 0:
+                        self._log("info", f"✅ [green]Virtual display {display} is ready[/green]")
+                    else:
+                        self._log("warning", f"⚠️ [yellow]Virtual display {display} not available - browser may fail[/yellow]")
+                except Exception as e:
+                    self._log("warning", f"⚠️ [yellow]Could not check virtual display: {e}[/yellow]")
+            else:
+                self._log("info", f"🖥️ [bold blue]Local Dev Mode:[/bold blue] [bold green]Enabled[/bold green] [dim](Real Display + Visible Browser)[/dim]")
             
             # Run Botasaurus in a separate thread since it's synchronous
             loop = asyncio.get_event_loop()
@@ -870,16 +1000,53 @@ class WebsiteReviewAggregator:
             def scrape_with_browser():
                 reviews = []
                 try:
-                    @browser
-                    def scrape_g2_reviews_robust(driver, data):
+                    @browser(
+                        # G2 SERVER-COMPATIBLE MODE 🖥️
+                        headless=False,  # Always visible browser (G2 requirement)
+                        # enable_xvfb_virtual_display=is_server,  # Virtual display handled by entrypoint
+                        user_agent=UserAgent.REAL,  # Use real user agent from Botasaurus
+                        window_size=WindowSize.RANDOM,  # Use realistic window dimensions  
+                        add_arguments=[
+                            # Essential stealth arguments
+                            "--no-sandbox",
+                            "--disable-dev-shm-usage",
+                            "--disable-blink-features=AutomationControlled"
+                        ]
+                    )
+                    def scrape_g2_reviews_robust(driver, data): 
                         business_name = data['business_name']
                         base_url = f"https://www.g2.com/products/{business_name}/reviews"
-                        
                         self._log("info", f"🤖 [bold blue]Starting FIXED G2 scraping:[/bold blue] [dim]{base_url}[/dim]")
                         
                         try:
-                            driver.get(base_url)
-                            driver.sleep(1)
+                            # Human-like behavior to avoid detection
+                            import random
+                            
+                            # Add random viewport jitter
+                            # driver.execute_script("window.resizeBy(Math.floor(Math.random() * 50) - 25, Math.floor(Math.random() * 50) - 25);")
+                            
+                            # Navigate with human-like timing using Google as referer 🚀
+                            # This makes the request look like it came from Google search
+                            driver.google_get(base_url, bypass_cloudflare=True)
+                            
+                            # Enable human mode for realistic mouse movements
+                            # driver.enable_human_mode()  # Requires botasaurus_humancursor
+                            
+                            # Random delay between 2-4 seconds to mimic human reading
+                            random_delay = random.uniform(1.5, 3.0)
+                            driver.sleep(random_delay)
+                            
+                            # Simulate human mouse movement
+                            # driver.execute_script("""
+                            #     var event = new MouseEvent('mousemove', {
+                            #         view: window,
+                            #         bubbles: true,
+                            #         cancelable: true,
+                            #         clientX: Math.random() * window.innerWidth,
+                            #         clientY: Math.random() * window.innerHeight
+                            #     });
+                            #     document.dispatchEvent(event);
+                            # """)
                             
                             self._log("info", f"✅ [bold green]Connected:[/bold green] {driver.title}")
                             
@@ -893,11 +1060,73 @@ class WebsiteReviewAggregator:
                                 self._log("info", f"📄 [bold blue]Processing G2 page[/bold blue] [bold cyan]{page_number}[/bold cyan]")
                                 
                                 try:
-                                    # Wait for content to load
-                                    driver.sleep(1)
+                                    # Wait longer for dynamic content to load
+                                    driver.sleep(3)
                                     
-                                    # Get articles (the actual reviews) - CORRECT APPROACH
-                                    articles = driver.select_all('article')
+                                    # Extra wait for dynamic content to load (no risky method calls)
+                                    driver.sleep(2)
+                                    
+                                    # Debug: Check if page loaded (without accessing page_source)
+                                    self._log("info", f"📊 [dim]Page loaded, checking for review elements...[/dim]")
+                                    
+                                    # Simulate more human behavior before scraping
+                                    driver.run_js("window.scrollTo(0, 100);")
+                                    driver.sleep(0.5)
+                                    
+                                    # Human-like interaction: move mouse around a bit
+                                    try:
+                                        body = driver.select("body")
+                                        if body:
+                                            body.scroll_into_view()
+                                    except:
+                                        pass
+                                    
+                                    # Debug current page state
+                                    self._log("info", f"🔍 [dim]Page title:[/dim] [bold cyan]{driver.title}[/bold cyan]")
+                                    self._log("info", f"🔍 [dim]Current URL:[/dim] [bold cyan]{driver.current_url}[/bold cyan]")
+                                    
+                                    # Check if we're being blocked
+                                    page_text = driver.run_js("return document.body.innerText;")[:200]
+                                    if any(keyword in page_text.lower() for keyword in ['blocked', 'captcha', 'robot', 'security']):
+                                        self._log("warning", f"🚫 [bold red]Possible bot detection![/bold red] Page text: {page_text}")
+                                    
+                                    # Try multiple selectors for G2 reviews with more options
+                                    selectors_to_try = [
+                                        'article',
+                                        '[data-testid="review"]',
+                                        '.review, .review-item, [class*="review"]',
+                                        'div[class*="Review"], div[class*="review"]',
+                                        '[class*="ReviewItem"]',
+                                        '[class*="UserReview"]',
+                                        'div[data-module="review"]',
+                                        '.paper.paper--white',  # G2 specific
+                                        '[data-qa="review"]'
+                                    ]
+                                    
+                                    articles = []
+                                    for selector in selectors_to_try:
+                                        self._log("info", f"🔍 [dim]Trying selector:[/dim] [bold cyan]{selector}[/bold cyan]")
+                                        articles = driver.select_all(selector)
+                                        if articles:
+                                            self._log("info", f"✅ [bold green]Found {len(articles)} elements with selector:[/bold green] [bold cyan]{selector}[/bold cyan]")
+                                            break
+                                    
+                                    # If still no articles, debug the DOM structure
+                                    if not articles:
+                                        self._log("warning", f"⚠️  [bold yellow]No articles found with any selector![/bold yellow]")
+                                        # Get some DOM structure for debugging
+                                        dom_sample = driver.run_js("""
+                                            const bodyChildren = Array.from(document.body.children);
+                                            return bodyChildren.slice(0, 5).map(el => ({
+                                                tag: el.tagName,
+                                                classes: el.className,
+                                                id: el.id,
+                                                text: el.innerText?.substring(0, 50) || ''
+                                            }));
+                                        """)
+                                        self._log("debug", f"🔍 [dim]DOM sample:[/dim] {dom_sample}")
+                                    
+                                    self._log("info", f"📦 [dim]Found[/dim] [bold green]{len(articles)}[/bold green] [dim]article elements with final selector[/dim]")
                                     
                                     if not articles:
                                         self._log("warning", f"❌ [bold red]No articles found on page[/bold red] [bold cyan]{page_number}[/bold cyan]")
@@ -1132,10 +1361,22 @@ class WebsiteReviewAggregator:
                                     break
                             
                             self._log("info", f"🎯 [bold blue]FINAL G2 RESULTS:[/bold blue] [bold green]{len(all_reviews)}[/bold green] [bold blue]unique reviews from[/bold blue] [bold cyan]{page_number-1}[/bold cyan] [bold blue]pages[/bold blue]")
+                            
+                            # Cleanup: disable human mode
+                            try:
+                                driver.disable_human_mode()
+                            except:
+                                pass
+                                
                             return all_reviews
                             
                         except Exception as e:
                             self._log("error", f"❌ [bold red]Critical error in G2 scraper:[/bold red] {e}")
+                            # Cleanup: disable human mode
+                            try:
+                                driver.disable_human_mode()
+                            except:
+                                pass
                             return []
                     
                     # Execute the robust scraper
@@ -1160,19 +1401,18 @@ class WebsiteReviewAggregator:
                     return reviews
                     
                 except Exception as e:
-                    self.logger.error(f"Error in Botasaurus G2 scraping: {e}")
+                    self._log("error", f"[bold red]Error in Botasaurus G2 scraping:[/bold red] {e}")
                     return []
             
             # Run in thread pool to avoid blocking
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(scrape_with_browser)
-                reviews = await loop.run_in_executor(None, future.result)
+            reviews = await loop.run_in_executor(None, scrape_with_browser)
             
-            self.logger.info(f"✅ FIXED Botasaurus extracted {len(reviews)} G2 reviews")
+            
+            self._log("info", f"✅ [bold green] Botasaurus extracted[/bold green] [bold cyan]{len(reviews)}[/bold cyan] [bold green]G2 reviews[/bold green]")
             return reviews
             
         except Exception as e:
-            self.logger.error(f"Error in Botasaurus G2 scraper: {e}")
+            self._log("error", f"[bold red]Error in Botasaurus G2 scraper:[/bold red] {e}")
             return []
     
     def _extract_g2_reviews_from_json(self, json_data: dict, business_name: str, page_number: int) -> List[WebsiteReview]:
@@ -1198,7 +1438,7 @@ class WebsiteReviewAggregator:
                                 )
                                 reviews.append(review)
         except Exception as e:
-            self.logger.error(f"Error extracting JSON reviews: {e}")
+            logger.error(f"Error extracting JSON reviews: {e}")
         
         return reviews
     
@@ -1208,7 +1448,7 @@ class WebsiteReviewAggregator:
         This provides informative messages about G2's protection.
         """
         try:
-            self.logger.info(f"Attempting fallback G2 scraping for {business_name}...")
+            self._log("info", f"[bold blue]Attempting fallback G2 scraping for[/bold blue] [bold green]{business_name}[/bold green]...")
             
             base_url = f"https://www.g2.com/products/{business_name}/reviews"
             
@@ -1218,19 +1458,19 @@ class WebsiteReviewAggregator:
             
             async with self.session.get(base_url, headers=headers) as response:
                 if response.status == 403:
-                    self.logger.warning("🚫 G2 blocked the request with Cloudflare protection")
+                    self._log("warning", "🚫 [bold red]G2 blocked the request with Cloudflare protection[/bold red]")
                 elif response.status == 404:
-                    self.logger.warning(f"📍 G2 product not found: {business_name}")
+                    self._log("warning", f"📍 [bold yellow]G2 product not found:[/bold yellow] [dim]{business_name}[/dim]")
                 else:
-                    self.logger.info(f"📊 G2 response status: {response.status}")
+                    self._log("info", f"📊 [bold blue]G2 response status:[/bold blue] [bold cyan]{response.status}[/bold cyan]")
             
-            self.logger.info("💡 For reliable G2 data extraction, Botasaurus browser automation is required")
-            self.logger.info("   Botasaurus successfully bypasses G2's anti-bot protection")
+            self._log("info", "💡 [bold blue]For reliable G2 data extraction, Botasaurus browser automation is required[/bold blue]")
+            self._log("info", "   [dim]Botasaurus successfully bypasses G2's anti-bot protection[/dim]")
             
             return []
             
         except Exception as e:
-            self.logger.error(f"Error in fallback G2 scraper: {e}")
+            self._log("error", f"[bold red]Error in fallback G2 scraper:[/bold red] {e}")
             return []
     
     async def _scrape_g2_via_search(self, business_name: str) -> List[WebsiteReview]:
@@ -1239,7 +1479,7 @@ class WebsiteReviewAggregator:
         This is a fallback when Cloudflare blocks direct product page access.
         """
         try:
-            print(f"Trying G2 search approach for {business_name}...")
+            self._log("info", f"[bold blue]Trying G2 search approach for[/bold blue] [bold green]{business_name}[/bold green]...")
             
             # Use Google search to find G2 product pages (bypasses G2's protection)
             search_query = f"site:g2.com/products {business_name} reviews"
@@ -1251,7 +1491,7 @@ class WebsiteReviewAggregator:
             
             async with self.session.get(google_url, headers=headers) as response:
                 if response.status != 200:
-                    print(f"Google search failed with status {response.status}")
+                    self._log("error", f"[bold red]Google search failed with status[/bold red] [bold cyan]{response.status}[/bold cyan]")
                     return []
                 
                 html = await response.text()
@@ -1271,20 +1511,20 @@ class WebsiteReviewAggregator:
                             break  # Just take the first result
                 
                 if not g2_links:
-                    print(f"No G2 product pages found for {business_name}")
+                    self._log("warning", f"[bold yellow]No G2 product pages found for[/bold yellow] [dim]{business_name}[/dim]")
                     return []
                 
-                print(f"Found G2 URL: {g2_links[0]}")
+                self._log("info", f"[bold green]Found G2 URL:[/bold green] [dim]{g2_links[0]}[/dim]")
                 
                 # For now, return empty list since we can't bypass Cloudflare without more advanced tools
                 # In a production environment, this would need a tool like Selenium, Playwright, or Botasaurus
-                print("💡 G2 SOLUTION: Use omkarcloud/g2-scraper with Botasaurus for reliable G2 data extraction")
-                print(f"   GitHub: https://github.com/omkarcloud/g2-scraper")
-                print(f"   RapidAPI: Available for commercial use")
+                self._log("info", "💡 [bold blue]G2 SOLUTION: Use omkarcloud/g2-scraper with Botasaurus for reliable G2 data extraction[/bold blue]")
+                self._log("info", "   [dim]GitHub: https://github.com/omkarcloud/g2-scraper[/dim]")
+                self._log("info", "   [dim]RapidAPI: Available for commercial use[/dim]")
                 return []
                 
         except Exception as e:
-            print(f"Error in G2 search fallback: {e}")
+            self._log("error", f"[bold red]Error in G2 search fallback:[/bold red] {e}")
             return []
     
     async def scrape_capterra_reviews(self, business_name: str) -> List[WebsiteReview]:
@@ -1327,7 +1567,7 @@ class WebsiteReviewAggregator:
             return reviews
             
         except Exception as e:
-            print(f"Error scraping Capterra reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping Capterra reviews for {business_name}: {e}")
             return []
     
     async def scrape_trustradius_reviews(self, business_name: str) -> List[WebsiteReview]:
@@ -1370,7 +1610,7 @@ class WebsiteReviewAggregator:
             return reviews
             
         except Exception as e:
-            print(f"Error scraping TrustRadius reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping TrustRadius reviews for {business_name}: {e}")
             return []
     
     async def scrape_software_advice_reviews(self, business_name: str) -> List[WebsiteReview]:
@@ -1412,7 +1652,7 @@ class WebsiteReviewAggregator:
             return reviews
             
         except Exception as e:
-            print(f"Error scraping Software Advice reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping Software Advice reviews for {business_name}: {e}")
             return []
     
     async def scrape_product_hunt_reviews(self, business_name: str) -> List[WebsiteReview]:
@@ -1453,7 +1693,7 @@ class WebsiteReviewAggregator:
             return reviews
             
         except Exception as e:
-            print(f"Error scraping Product Hunt reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping Product Hunt reviews for {business_name}: {e}")
             return []
     
     # Travel & Hospitality Platforms
@@ -1497,7 +1737,7 @@ class WebsiteReviewAggregator:
             return reviews
             
         except Exception as e:
-            print(f"Error scraping TripAdvisor reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping TripAdvisor reviews for {business_name}: {e}")
             return []
     
     async def scrape_booking_com_reviews(self, business_name: str) -> List[WebsiteReview]:
@@ -1539,7 +1779,7 @@ class WebsiteReviewAggregator:
             return reviews
             
         except Exception as e:
-            print(f"Error scraping Booking.com reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping Booking.com reviews for {business_name}: {e}")
             return []
     
     async def scrape_expedia_reviews(self, business_name: str) -> List[WebsiteReview]:
@@ -1581,7 +1821,7 @@ class WebsiteReviewAggregator:
             return reviews
             
         except Exception as e:
-            print(f"Error scraping Expedia reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping Expedia reviews for {business_name}: {e}")
             return []
     
     async def scrape_hotels_com_reviews(self, business_name: str) -> List[WebsiteReview]:
@@ -1623,7 +1863,7 @@ class WebsiteReviewAggregator:
             return reviews
             
         except Exception as e:
-            print(f"Error scraping Hotels.com reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping Hotels.com reviews for {business_name}: {e}")
             return []
     
     async def scrape_airbnb_reviews(self, business_name: str) -> List[WebsiteReview]:
@@ -1664,7 +1904,7 @@ class WebsiteReviewAggregator:
             return reviews
             
         except Exception as e:
-            print(f"Error scraping Airbnb reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping Airbnb reviews for {business_name}: {e}")
             return []
     
     async def scrape_trivago_reviews(self, business_name: str) -> List[WebsiteReview]:
@@ -1706,7 +1946,7 @@ class WebsiteReviewAggregator:
             return reviews
             
         except Exception as e:
-            print(f"Error scraping Trivago reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping Trivago reviews for {business_name}: {e}")
             return []
     
     async def scrape_holidaycheck_reviews(self, business_name: str) -> List[WebsiteReview]:
@@ -1748,7 +1988,7 @@ class WebsiteReviewAggregator:
             return reviews
             
         except Exception as e:
-            print(f"Error scraping HolidayCheck reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping HolidayCheck reviews for {business_name}: {e}")
             return []
     
     # Restaurant Platforms
@@ -1793,7 +2033,7 @@ class WebsiteReviewAggregator:
             return reviews
             
         except Exception as e:
-            print(f"Error scraping Zomato reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping Zomato reviews for {business_name}: {e}")
             return []
     
     async def scrape_opentable_reviews(self, business_name: str) -> List[WebsiteReview]:
@@ -1835,7 +2075,7 @@ class WebsiteReviewAggregator:
             return reviews
             
         except Exception as e:
-            print(f"Error scraping OpenTable reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping OpenTable reviews for {business_name}: {e}")
             return []
     
     # Helper methods for rating extraction
@@ -2021,7 +2261,7 @@ class WebsiteReviewAggregator:
                 return []
             
             reviews = []
-            print(f"Scraping testimonials from website: {website_url}")
+            self._log("info", f"Scraping testimonials from website: {website_url}")
             
             # Look for common testimonial/review patterns
             testimonial_selectors = [
@@ -2137,7 +2377,7 @@ class WebsiteReviewAggregator:
             return reviews[:20]  # Limit total reviews from website
             
         except Exception as e:
-            print(f"Error scraping website testimonials from {website_url}: {e}")
+            self._log("info", f"Error scraping website testimonials from {website_url}: {e}")
             return []
     
     async def scrape_trustpilot_reviews(self, business_name: str) -> List[WebsiteReview]:
@@ -2261,13 +2501,13 @@ class WebsiteReviewAggregator:
                             reviews.append(review)
                             
                         except Exception as e:
-                            print(f"Error parsing Trustpilot review {j}: {e}")
+                            self._log("info", f"Error parsing Trustpilot review {j}: {e}")
                             continue
             
             return reviews
             
         except Exception as e:
-            print(f"Error scraping Trustpilot reviews for {business_name}: {e}")
+            self._log("info", f"Error scraping Trustpilot reviews for {business_name}: {e}")
             return []
     
     async def scrape_trustpilot_reviews_json(self, business_name: str) -> List[WebsiteReview]:
@@ -2283,7 +2523,7 @@ class WebsiteReviewAggregator:
         """
         try:
             base_url = f"https://www.trustpilot.com/review/{business_name}"
-            print(f"Scraping Trustpilot reviews from: {base_url}")
+            self._log("info", f"Scraping Trustpilot reviews from: {base_url}")
             
             reviews = []
             page_number = 1
@@ -2303,7 +2543,7 @@ class WebsiteReviewAggregator:
                     
                     async with self.session.get(page_url, headers=headers, timeout=15) as response:
                         if response.status != 200:
-                            print(f"HTTP {response.status} for page {page_number}")
+                            self._log("info", f"HTTP {response.status} for page {page_number}")
                             break
                         
                         html_content = await response.text()
@@ -2313,7 +2553,7 @@ class WebsiteReviewAggregator:
                     script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
                     
                     if not script_tag or not script_tag.string:
-                        print(f"No __NEXT_DATA__ found on page {page_number}")
+                        self._log("info", f"No __NEXT_DATA__ found on page {page_number}")
                         break
                     
                     # Parse the JSON data
@@ -2321,11 +2561,11 @@ class WebsiteReviewAggregator:
                         json_data = json.loads(script_tag.string)
                         page_reviews = json_data.get("props", {}).get("pageProps", {}).get("reviews", [])
                     except json.JSONDecodeError as e:
-                        print(f"Failed to parse JSON data on page {page_number}: {e}")
+                        self._log("info", f"Failed to parse JSON data on page {page_number}: {e}")
                         break
                     
                     if not page_reviews:
-                        print(f"No more reviews found on page {page_number}")
+                        self._log("info", f"No more reviews found on page {page_number}")
                         break
                     
                     # Process each review
@@ -2385,10 +2625,10 @@ class WebsiteReviewAggregator:
                             reviews.append(review)
                             
                         except Exception as e:
-                            print(f"Error processing review {i} on page {page_number}: {e}")
+                            self._log("info", f"Error processing review {i} on page {page_number}: {e}")
                             continue
                     
-                    print(f"Extracted {len(page_reviews)} reviews from page {page_number}")
+                    self._log("info", f"Extracted {len(page_reviews)} reviews from page {page_number}")
                     page_number += 1
                     
                     # Add delay to be respectful
@@ -2399,7 +2639,7 @@ class WebsiteReviewAggregator:
                         break
                         
                 except Exception as e:
-                    print(f"Error fetching page {page_number}: {e}")
+                    self._log("info", f"Error fetching page {page_number}: {e}")
                     break
             
             # Remove duplicates based on review text
@@ -2411,12 +2651,12 @@ class WebsiteReviewAggregator:
                     unique_reviews.append(review)
                     seen_texts.add(review.text)
             
-            print(f"Successfully extracted {len(unique_reviews)} unique reviews from Trustpilot JSON data")
+            self._log("info", f"Successfully extracted {len(unique_reviews)} unique reviews from Trustpilot JSON data")
             return unique_reviews
             
         except Exception as e:
-            print(f"Error using Trustpilot JSON scraper for {business_name}: {e}")
-            print("Falling back to HTML scraper...")
+            self._log("info", f"Error using Trustpilot JSON scraper for {business_name}: {e}")
+            self._log("info", "Falling back to HTML scraper...")
             return await self.scrape_trustpilot_reviews(business_name)
     
     async def scrape_trustpilot_reviews_enhanced(self, business_name: str) -> List[WebsiteReview]:
@@ -2430,7 +2670,7 @@ class WebsiteReviewAggregator:
             return json_reviews
         
         # Fall back to HTML scraper if JSON method doesn't work
-        print("JSON scraper failed, trying HTML scraper...")
+        self._log("info", "JSON scraper failed, trying HTML scraper...")
         html_reviews = await self.scrape_trustpilot_reviews(business_name)
         
         return html_reviews
@@ -2440,27 +2680,27 @@ if __name__ == "__main__":
     async def test_trustpilot():
         async with WebsiteReviewAggregator() as aggregator:
             business_name = "www.gorgias.com"
-            print("=== Testing JSON-based Trustpilot scraper ===")
+            logger.info("=== Testing JSON-based Trustpilot scraper ===")
             business_name = "gorgias"
-            res = await aggregator._scrape_g2_with_botasaurus(business_name)
+            res = await aggregator.scrape_g2_reviews(business_name)
+            # res = await aggregator._scrape_g2_with_botasaurus(business_name)
             # json_reviews = await aggregator.scrape_trustpilot_reviews_json(business_name)
-            # print(f"JSON method found {len(json_reviews)} reviews")
+            # self._log("info", f"JSON method found {len(json_reviews)} reviews")
             
             # if json_reviews:
-            #     print("Sample review from JSON:")
+            #     self._log("info", "Sample review from JSON:")
             #     sample = json_reviews[0]
-            #     print(f"  Rating: {sample.rating}/5")
-            #     print(f"  Author: {sample.author}")
-            #     print(f"  Text: {sample.text[:100]}...")
-            #     print(f"  Date: {sample.date}")
+            #     self._log("info", f"  Rating: {sample.rating}/5")
+            #     self._log("info", f"  Author: {sample.author}")
+            #     self._log("info", f"  Text: {sample.text[:100]}...")
+            #     self._log("info", f"  Date: {sample.date}")
             
-            # print("\n=== Testing Enhanced Trustpilot scraper (JSON + HTML fallback) ===")
+            # self._log("info", "\n=== Testing Enhanced Trustpilot scraper (JSON + HTML fallback) ===")
             # enhanced_reviews = await aggregator.scrape_trustpilot_reviews_enhanced(business_name)
-            # print(f"Enhanced method found {len(enhanced_reviews)} reviews")
+            # self._log("info", f"Enhanced method found {len(enhanced_reviews)} reviews")
 
-            # print("\n=== Testing HTML Trustpilot scraper ===")
+            # self._log("info", "\n=== Testing HTML Trustpilot scraper ===")
             # html_reviews = await aggregator.scrape_trustpilot_reviews(business_name)
-            # print(f"HTML method found {len(html_reviews)} reviews")
-            breakpoint()
+            # self._log("info", f"HTML method found {len(html_reviews)} reviews")
     
     asyncio.run(test_trustpilot())

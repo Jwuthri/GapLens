@@ -38,6 +38,9 @@ services:
       - REDIS_URL=redis://redis:6379
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      # 🖥️ G2 Scraping: Enable server mode with virtual display
+      - SERVER_MODE=true
+      - DISPLAY=:99
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,7 +48,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: python docker-entrypoint.py uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   celery-worker:
     build: ./backend
@@ -54,6 +57,9 @@ services:
       - REDIS_URL=redis://redis:6379
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      # 🖥️ G2 Scraping: Enable server mode with virtual display
+      - SERVER_MODE=true
+      - DISPLAY=:99
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,7 +67,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
-    command: celery -A app.core.celery_app worker --loglevel=info --queues=analysis --concurrency=2
+    command: python docker-entrypoint.py celery -A app.core.celery_app worker --loglevel=info --queues=analysis --concurrency=2
 
   frontend:
     build: ./frontend

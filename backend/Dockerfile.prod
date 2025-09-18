@@ -8,20 +8,75 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Set work directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies and browser support
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
         curl \
         postgresql-client \
+        wget \
+        gnupg \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Chrome/Chromium (with architecture detection)
+RUN dpkgArch="$(dpkg --print-architecture)" \
+    && case "${dpkgArch##*-}" in \
+        amd64) \
+            # Install Chrome for AMD64
+            wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/googlechrome-linux-keyring.gpg \
+            && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/googlechrome-linux-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | tee /etc/apt/sources.list.d/google-chrome.list \
+            && apt-get update \
+            && apt-get install -y google-chrome-stable \
+            ;; \
+        arm64) \
+            # Install Chromium for ARM64 (Apple Silicon)
+            apt-get update \
+            && apt-get install -y chromium chromium-driver \
+            ;; \
+        *) echo "unsupported architecture"; exit 1 ;; \
+    esac \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install browser runtime dependencies and virtual display
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libnss3 \
+    libatk-bridge2.0-0 \
+    libdrm2 \
+    libxkbcommon0 \
+    libgtk-3-0 \
+    libgbm-dev \
+    libasound2 \
+    xvfb \
+    x11-utils \
+    x11-xserver-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set browser executable path for Botasaurus based on architecture
+RUN dpkgArch="$(dpkg --print-architecture)" \
+    && case "${dpkgArch##*-}" in \
+        amd64) \
+            echo 'export CHROME_EXECUTABLE="/usr/bin/google-chrome"' >> /etc/environment \
+            ;; \
+        arm64) \
+            echo 'export CHROME_EXECUTABLE="/usr/bin/chromium"' >> /etc/environment \
+            ;; \
+    esac
+
+# 🖥️ Enable server mode for G2 scraping with virtual display
+ENV SERVER_MODE=true
+ENV DISPLAY=:99
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy entrypoint scripts first and make them executable
+COPY start-server.sh docker-entrypoint.py .
+RUN chmod 755 start-server.sh docker-entrypoint.py
+
+# Copy the rest of the application code
 COPY . .
 
 # Create non-root user
@@ -36,5 +91,5 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
 # Expose port
 EXPOSE 8000
 
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# Run the application with startup script
+CMD ["./start-server.sh", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

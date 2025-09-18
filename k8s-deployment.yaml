@@ -237,6 +237,11 @@ spec:
             configMapKeyRef:
               name: app-config
               key: CORS_ORIGINS
+        # 🖥️ G2 Scraping: Enable server mode with virtual display
+        - name: SERVER_MODE
+          value: "true"
+        - name: DISPLAY
+          value: ":99"
         livenessProbe:
           httpGet:
             path: /live
@@ -287,7 +292,7 @@ spec:
       containers:
       - name: celery-worker
         image: review-gap-analyzer/backend:latest
-        command: ["celery", "-A", "app.core.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+        command: ["./start-server.sh", "celery", "-A", "app.core.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
         env:
         - name: DATABASE_URL
           valueFrom:
@@ -304,6 +309,11 @@ spec:
             configMapKeyRef:
               name: app-config
               key: ENVIRONMENT
+        # 🖥️ G2 Scraping: Enable server mode with virtual display
+        - name: SERVER_MODE
+          value: "true"
+        - name: DISPLAY
+          value: ":99"
         resources:
           requests:
             memory: "512Mi"
